@@ -42,14 +42,55 @@ internal static class Program
     }
 }
 
+internal sealed class PremiumButton : Button
+{
+    private bool hovered;
+    public PremiumButton()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                 ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
+        FlatStyle = FlatStyle.Flat;
+        FlatAppearance.BorderSize = 0;
+        FlatAppearance.MouseDownBackColor = Color.Transparent;
+        FlatAppearance.MouseOverBackColor = Color.Transparent;
+        UseVisualStyleBackColor = false;
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { hovered = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hovered = false; Invalidate(); base.OnMouseLeave(e); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.Clear(Parent?.BackColor ?? Color.Black);
+        var rect = ClientRectangle;
+        rect.Width -= 1; rect.Height -= 1;
+        int radius = Math.Min(10, Math.Max(4, Height / 5));
+        using var path = new GraphicsPath();
+        path.AddArc(rect.X, rect.Y, radius * 2, radius * 2, 180, 90);
+        path.AddArc(rect.Right - radius * 2, rect.Y, radius * 2, radius * 2, 270, 90);
+        path.AddArc(rect.Right - radius * 2, rect.Bottom - radius * 2, radius * 2, radius * 2, 0, 90);
+        path.AddArc(rect.X, rect.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
+        path.CloseFigure();
+        Color baseColor = Enabled ? BackColor : Color.FromArgb(45, 45, 55);
+        Color top = hovered ? ControlPaint.Light(baseColor, .12f) : baseColor;
+        using var brush = new LinearGradientBrush(rect, top, ControlPaint.Dark(baseColor, .06f), LinearGradientMode.Vertical);
+        e.Graphics.FillPath(brush, path);
+        using var border = new Pen(hovered ? Color.FromArgb(105, 255, 255, 255) : Color.FromArgb(28, 255, 255, 255), 1);
+        e.Graphics.DrawPath(border, path);
+        TextRenderer.DrawText(e.Graphics, Text, Font, Rectangle.Inflate(rect, -8, -2), ForeColor,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+}
+
 internal sealed class MainForm : Form
 {
-    private readonly Color bg = Color.FromArgb(13, 15, 20);
-    private readonly Color panel = Color.FromArgb(22, 25, 32);
-    private readonly Color panel2 = Color.FromArgb(30, 34, 43);
-    private readonly Color text = Color.FromArgb(242, 245, 250);
-    private readonly Color muted = Color.FromArgb(145, 154, 169);
-    private readonly Color blue = Color.FromArgb(39, 183, 235);
+    private readonly Color bg = Color.FromArgb(10, 10, 16);
+    private readonly Color panel = Color.FromArgb(20, 19, 30);
+    private readonly Color panel2 = Color.FromArgb(29, 27, 42);
+    private readonly Color text = Color.FromArgb(248, 246, 255);
+    private readonly Color muted = Color.FromArgb(157, 151, 178);
+    private readonly Color blue = Color.FromArgb(139, 92, 246);
     private readonly string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FortniteBoosterPRO");
     private string DataPath => Path.Combine(root, "profiles.json");
     private string CoverPath => Path.Combine(root, "fortnite-live.jpg");
@@ -104,10 +145,10 @@ internal sealed class MainForm : Form
         refreshTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
         refreshTimer.Tick += async (_, _) => await RefreshArtworkAsync();
         refreshTimer.Start();
-        fadeTimer = new System.Windows.Forms.Timer { Interval = 25 };
+        fadeTimer = new System.Windows.Forms.Timer { Interval = 16 };
         fadeTimer.Tick += (_, _) =>
         {
-            fadeProgress = Math.Min(1f, fadeProgress + 0.075f);
+            fadeProgress = Math.Min(1f, fadeProgress + 0.032f);
             if (fadeProgress >= 1f)
             {
                 fadeTimer.Stop();
@@ -301,20 +342,12 @@ internal sealed class MainForm : Form
 
     private Button MakeButton(string caption, int x, int y, int w, int h, Color back, Color fore)
     {
-        var b = new Button
+        return new PremiumButton
         {
-            Text = caption,
-            Location = new Point(x, y),
-            Size = new Size(w, h),
-            BackColor = back,
-            ForeColor = fore,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9, FontStyle.Bold),
-            Cursor = Cursors.Hand
+            Text = caption, Location = new Point(x, y), Size = new Size(w, h),
+            BackColor = back, ForeColor = fore, Font = new Font("Segoe UI", 9, FontStyle.Bold),
+            Cursor = Cursors.Hand, FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleCenter
         };
-        b.FlatAppearance.BorderSize = 0;
-        b.FlatAppearance.MouseOverBackColor = ControlPaint.Light(back, .10f);
-        return b;
     }
 
     private void ResetContent()
@@ -1172,8 +1205,9 @@ internal sealed class MainForm : Form
         Image? previous = fadeFromIndex >= 0 && fadeFromIndex < banners.Count ? banners[fadeFromIndex] : null;
         if (current != null)
         {
-            if (previous != null && fadeProgress < 1f) DrawCoverImage(g, previous, bounds, 1f - fadeProgress);
-            DrawCoverImage(g, current, bounds, previous == null ? 1f : fadeProgress);
+            if (previous != null && fadeProgress < 1f) float eased = 1f - (float)Math.Pow(1f - fadeProgress, 3);
+            if (previous != null && fadeProgress < 1f) DrawCoverImage(g, previous, bounds, 1f - eased);
+            DrawCoverImage(g, current, bounds, previous == null ? 1f : eased);
         }
         else
         {
@@ -1488,93 +1522,202 @@ internal sealed class MainForm : Form
 
     private void ShowBoost()
     {
-        using var f = CreateDialog("ЦЕНТР ОПТИМИЗАЦИИ  /  СТАБИЛЬНОСТЬ FPS", 820, 760);
-        f.Controls.Add(new Label
-        {
-            Text = "ВЫБЕРИ РЕЖИМ И ОТМЕТЬ НУЖНЫЕ ПАРАМЕТРЫ",
-            Location = new Point(26, 67), Size = new Size(730, 22),
-            ForeColor = blue, Font = new Font("Segoe UI", 8, FontStyle.Bold)
-        });
-        f.Controls.Add(new Label
-        {
-            Text = "Настройки применяются только к текущему пользователю Windows. Перед первым изменением сохраняются исходные значения реестра.",
-            Location = new Point(26, 94), Size = new Size(750, 38), ForeColor = muted
-        });
+        using var f = CreateDialog("BOOST CENTER  /  ПРОИЗВОДИТЕЛЬНОСТЬ", 1040, 790);
+        f.MinimumSize = new Size(900, 700);
+        f.BackColor = bg;
 
-        f.Controls.Add(new Label
+        var rail = new Panel
         {
-            Text = "ПРОФИЛЬ ОПТИМИЗАЦИИ",
-            Location = new Point(28, 145), Size = new Size(250, 20),
-            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
-        });
-        var preset = new ComboBox
-        {
-            Location = new Point(28, 170), Size = new Size(735, 36),
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            BackColor = panel2, ForeColor = text, FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 10)
+            Location = new Point(0, 52), Size = new Size(228, 690),
+            BackColor = Color.FromArgb(15, 14, 23), Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left
         };
-        preset.Items.AddRange(new object[] {
-            "Стабильность FPS — рекомендовано",
-            "Сбалансированный режим",
-            "Минимум фоновой записи"
-        });
-        preset.SelectedIndex = 0;
-        f.Controls.Add(preset);
-
-        CheckBox AddOption(string title, string description, int y, bool isChecked)
+        f.Controls.Add(rail);
+        rail.Controls.Add(new Label
         {
-            var card = new Panel
+            Text = "УПРАВЛЕНИЕ\nПРОИЗВОДИТЕЛЬНОСТЬЮ",
+            Location = new Point(22, 24), Size = new Size(185, 52),
+            ForeColor = text, Font = new Font("Segoe UI", 11, FontStyle.Bold)
+        });
+        rail.Controls.Add(new Label
+        {
+            Text = "FORTNITE  /  WINDOWS 11",
+            Location = new Point(22, 88), Size = new Size(185, 18),
+            ForeColor = muted, Font = new Font("Segoe UI", 7, FontStyle.Bold)
+        });
+        var activeRail = new Panel { Location = new Point(0, 126), Size = new Size(3, 42), BackColor = blue };
+        rail.Controls.Add(activeRail);
+        string[] sections = { "ОБЗОР", "ИГРОВОЙ РЕЖИМ", "ФОНОВАЯ ЗАПИСЬ", "СИСТЕМНЫЕ ИНСТРУМЕНТЫ" };
+        for (int i = 0; i < sections.Length; i++)
+        {
+            int y = 118 + i * 52;
+            var nav = MakeButton(sections[i], 14, y, 200, 42,
+                i == 0 ? panel2 : Color.FromArgb(15, 14, 23), i == 0 ? text : muted);
+            nav.TextAlign = ContentAlignment.MiddleLeft;
+            nav.Padding = new Padding(12, 0, 0, 0);
+            nav.Click += (_, _) =>
             {
-                Location = new Point(26, y), Size = new Size(738, 76),
-                BackColor = panel, Padding = new Padding(12)
+                activeRail.Top = nav.Top + 8;
+                foreach (Control c in rail.Controls.OfType<Button>()) c.BackColor = Color.FromArgb(15, 14, 23);
+                nav.BackColor = panel2;
             };
-            var check = new CheckBox
-            {
-                Text = title, Checked = isChecked, AutoSize = false,
-                Location = new Point(14, 9), Size = new Size(690, 25),
-                ForeColor = text, BackColor = panel,
-                Font = new Font("Segoe UI", 10, FontStyle.Bold)
-            };
-            card.Controls.Add(check);
-            card.Controls.Add(new Label
-            {
-                Text = description, Location = new Point(38, 37), Size = new Size(675, 28),
-                ForeColor = muted, Font = new Font("Segoe UI", 8)
-            });
-            f.Controls.Add(card);
-            return check;
+            rail.Controls.Add(nav);
         }
 
-        var gameMode = AddOption("Игровой режим Windows", "Включает автоматическое применение игрового режима Windows.", 225, true);
-        var disableDvr = AddOption("Отключить фоновую запись", "Убирает постоянную запись игровых фрагментов и снижает лишнюю фоновую активность.", 310, true);
-        var captureOff = AddOption("Отключить захват Xbox Game Bar", "Отключает системный захват клипов. Используй, если не записываешь игровой процесс.", 395, false);
-
-        preset.SelectedIndexChanged += (_, _) =>
+        var scroll = new Panel
         {
-            if (preset.SelectedIndex == 0)
-            {
-                gameMode.Checked = true; disableDvr.Checked = true; captureOff.Checked = false;
-            }
-            else if (preset.SelectedIndex == 1)
-            {
-                gameMode.Checked = true; disableDvr.Checked = false; captureOff.Checked = false;
-            }
-            else
-            {
-                gameMode.Checked = true; disableDvr.Checked = true; captureOff.Checked = true;
-            }
+            Location = new Point(228, 52), Size = new Size(796, 690),
+            BackColor = bg, AutoScroll = true, Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
         };
+        f.Controls.Add(scroll);
 
+        var heading = new Label
+        {
+            Text = "ПРОФИЛЬ ПРОИЗВОДИТЕЛЬНОСТИ",
+            Location = new Point(30, 24), Size = new Size(600, 34),
+            ForeColor = text, Font = new Font("Segoe UI", 19, FontStyle.Bold)
+        };
+        scroll.Controls.Add(heading);
+        scroll.Controls.Add(new Label
+        {
+            Text = "Настрой параметры Windows под игру. Никаких сомнительных твиков, отключения служб или разгона.",
+            Location = new Point(32, 63), Size = new Size(710, 36),
+            ForeColor = muted, Font = new Font("Segoe UI", 9)
+        });
+
+        var specs = DetectPcSpecs();
+        var pcCard = new Panel { Location = new Point(30, 112), Size = new Size(710, 90), BackColor = panel };
+        scroll.Controls.Add(pcCard);
+        pcCard.Controls.Add(new Label
+        {
+            Text = "ТВОЯ СИСТЕМА", Location = new Point(16, 12), Size = new Size(170, 18),
+            ForeColor = muted, Font = new Font("Segoe UI", 7, FontStyle.Bold)
+        });
+        pcCard.Controls.Add(new Label
+        {
+            Text = specs.Cpu, Location = new Point(16, 36), Size = new Size(300, 22),
+            ForeColor = text, Font = new Font("Segoe UI", 9, FontStyle.Bold), AutoEllipsis = true
+        });
+        pcCard.Controls.Add(new Label
+        {
+            Text = specs.Gpu + "    /    " + specs.Ram,
+            Location = new Point(330, 36), Size = new Size(355, 22),
+            ForeColor = muted, Font = new Font("Segoe UI", 9), AutoEllipsis = true
+        });
+
+        scroll.Controls.Add(new Label
+        {
+            Text = "РЕЖИМ РАБОТЫ",
+            Location = new Point(32, 226), Size = new Size(250, 20),
+            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        });
+        var presetHost = new FlowLayoutPanel
+        {
+            Location = new Point(30, 252), Size = new Size(710, 94),
+            BackColor = Color.Transparent, WrapContents = false, FlowDirection = FlowDirection.LeftToRight
+        };
+        scroll.Controls.Add(presetHost);
+        var presets = new[]
+        {
+            ("СТАБИЛЬНОСТЬ FPS", "Рекомендуемый профиль", true),
+            ("СБАЛАНСИРОВАННЫЙ", "Обычная работа и игры", false),
+            ("МИНИМУМ ЗАПИСИ", "Без фонового захвата", false)
+        };
+        var checks = new List<CheckBox>();
+        var gameMode = new CheckBox { Checked = true };
+        var disableDvr = new CheckBox { Checked = true };
+        var captureOff = new CheckBox { Checked = false };
+
+        var profileButtons = new List<Button>();
+        foreach (var item in presets)
+        {
+            var tile = new Panel { Size = new Size(226, 78), BackColor = item.Item3 ? Color.FromArgb(45, 35, 68) : panel, Margin = new Padding(0, 0, 10, 0), Cursor = Cursors.Hand };
+            tile.Controls.Add(new Label { Text = item.Item1, Location = new Point(12, 15), Size = new Size(204, 20), ForeColor = text, Font = new Font("Segoe UI", 8, FontStyle.Bold) });
+            tile.Controls.Add(new Label { Text = item.Item2, Location = new Point(12, 40), Size = new Size(204, 18), ForeColor = muted, Font = new Font("Segoe UI", 8) });
+            var select = MakeButton(item.Item3 ? "ВЫБРАН" : "ВЫБРАТЬ", 145, 48, 68, 22, item.Item3 ? blue : panel2, text);
+            select.Font = new Font("Segoe UI", 6.5f, FontStyle.Bold);
+            tile.Controls.Add(select);
+            presetHost.Controls.Add(tile);
+            profileButtons.Add(select);
+            int index = profileButtons.Count - 1;
+            void Choose()
+            {
+                foreach (var c in presetHost.Controls.OfType<Panel>())
+                {
+                    c.BackColor = panel;
+                    var b = c.Controls.OfType<Button>().FirstOrDefault();
+                    if (b != null) { b.Text = "ВЫБРАТЬ"; b.BackColor = panel2; }
+                }
+                tile.BackColor = Color.FromArgb(45, 35, 68);
+                select.Text = "ВЫБРАН";
+                select.BackColor = blue;
+                if (index == 0) { gameMode.Checked = true; disableDvr.Checked = true; captureOff.Checked = false; }
+                else if (index == 1) { gameMode.Checked = true; disableDvr.Checked = false; captureOff.Checked = false; }
+                else { gameMode.Checked = true; disableDvr.Checked = true; captureOff.Checked = true; }
+            }
+            tile.Click += (_, _) => Choose();
+            select.Click += (_, _) => Choose();
+        }
+
+        scroll.Controls.Add(new Label
+        {
+            Text = "НАСТРОЙКИ WINDOWS",
+            Location = new Point(32, 372), Size = new Size(300, 20),
+            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        });
+
+        void AddToggle(string title, string desc, int y, CheckBox state, string tag)
+        {
+            var card = new Panel { Location = new Point(30, y), Size = new Size(710, 72), BackColor = panel };
+            scroll.Controls.Add(card);
+            card.Controls.Add(new Label
+            {
+                Text = title, Location = new Point(16, 12), Size = new Size(540, 22),
+                ForeColor = text, Font = new Font("Segoe UI", 10, FontStyle.Bold)
+            });
+            card.Controls.Add(new Label
+            {
+                Text = desc, Location = new Point(16, 38), Size = new Size(555, 22),
+                ForeColor = muted, Font = new Font("Segoe UI", 8)
+            });
+            state.Appearance = Appearance.Button;
+            state.Text = state.Checked ? "ВКЛ" : "ВЫКЛ";
+            state.TextAlign = ContentAlignment.MiddleCenter;
+            state.Location = new Point(615, 20);
+            state.Size = new Size(76, 32);
+            state.FlatStyle = FlatStyle.Flat;
+            state.FlatAppearance.BorderSize = 0;
+            state.BackColor = state.Checked ? Color.FromArgb(66, 48, 105) : panel2;
+            state.ForeColor = text;
+            state.Font = new Font("Segoe UI", 8, FontStyle.Bold);
+            state.CheckedChanged += (_, _) =>
+            {
+                state.Text = state.Checked ? "ВКЛ" : "ВЫКЛ";
+                state.BackColor = state.Checked ? Color.FromArgb(66, 48, 105) : panel2;
+            };
+            card.Controls.Add(state);
+        }
+        AddToggle("Игровой режим Windows", "Позволяет Windows отдавать приоритет игре во время запуска.", 402, gameMode, "gamemode");
+        AddToggle("Отключить фоновую запись", "Не записывать игровые моменты в фоне, если эта функция не используется.", 482, disableDvr, "dvr");
+        AddToggle("Отключить захват клипов Xbox", "Отключает системный захват клипов. Не включай, если пользуешься записью.", 562, captureOff, "capture");
+
+        var statusCard = new Panel { Location = new Point(30, 650), Size = new Size(710, 78), BackColor = Color.FromArgb(24, 32, 35) };
+        scroll.Controls.Add(statusCard);
         var status = new Label
         {
-            Text = "СОСТОЯНИЕ: изменения ещё не применялись.",
-            Location = new Point(28, 490), Size = new Size(730, 24),
-            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
+            Text = "ГОТОВО К ПРИМЕНЕНИЮ  /  ИЗМЕНЕНИЯ ЕЩЁ НЕ ВНЕСЕНЫ",
+            Location = new Point(16, 12), Size = new Size(675, 20),
+            ForeColor = Color.FromArgb(127, 211, 171), Font = new Font("Segoe UI", 8, FontStyle.Bold)
         };
-        f.Controls.Add(status);
+        statusCard.Controls.Add(status);
+        statusCard.Controls.Add(new Label
+        {
+            Text = "Перед изменением каждого параметра создаётся резервная копия исходного значения.",
+            Location = new Point(16, 39), Size = new Size(675, 20),
+            ForeColor = muted, Font = new Font("Segoe UI", 8)
+        });
 
-        var apply = MakeButton("ПРИМЕНИТЬ ВЫБРАННЫЙ ПРОФИЛЬ", 26, 530, 738, 48, blue, Color.FromArgb(5, 20, 29));
+        var apply = MakeButton("ПРИМЕНИТЬ ОПТИМИЗАЦИЮ", 30, 746, 710, 48, blue, Color.White);
+        scroll.Controls.Add(apply);
         apply.Click += (_, _) =>
         {
             try
@@ -1591,46 +1734,40 @@ internal sealed class MainForm : Form
                 }
                 SetUserDword(@"System\GameConfigStore", "GameDVR_Enabled", disableDvr.Checked ? 0 : 1);
                 SetUserDword(@"Software\Microsoft\Windows\CurrentVersion\GameDVR", "AppCaptureEnabled", captureOff.Checked ? 0 : 1);
-                status.Text = "ГОТОВО: выбранные параметры применены. Для некоторых изменений может понадобиться выход из системы.";
-                status.ForeColor = Color.FromArgb(105, 222, 157);
+                status.Text = "ОПТИМИЗАЦИЯ ПРИМЕНЕНА  /  ПАРАМЕТРЫ WINDOWS ОБНОВЛЕНЫ";
+                status.ForeColor = Color.FromArgb(127, 211, 171);
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Не удалось применить настройки: " + ex.Message, "Оптимизация", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Не удалось применить настройки: " + ex.Message, "Boost Center", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         };
-        f.Controls.Add(apply);
 
-        var restore = MakeButton("ВОССТАНОВИТЬ ИСХОДНЫЕ ПАРАМЕТРЫ", 26, 590, 350, 42, panel2, text);
+        var toolsTitle = new Label
+        {
+            Text = "БЫСТРЫЕ ИНСТРУМЕНТЫ",
+            Location = new Point(32, 818), Size = new Size(300, 20),
+            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        };
+        scroll.Controls.Add(toolsTitle);
+        var restore = MakeButton("ВОССТАНОВИТЬ WINDOWS", 30, 846, 225, 42, panel2, text);
         restore.Click += (_, _) =>
         {
-            try
-            {
-                RestoreRegistryBackup();
-                status.Text = "ИСХОДНЫЕ ПАРАМЕТРЫ WINDOWS ВОССТАНОВЛЕНЫ.";
-                status.ForeColor = Color.FromArgb(105, 222, 157);
-            }
+            try { RestoreRegistryBackup(); status.Text = "ИСХОДНЫЕ ПАРАМЕТРЫ ВОССТАНОВЛЕНЫ"; status.ForeColor = Color.FromArgb(127, 211, 171); }
             catch (Exception ex) { MessageBox.Show("Ошибка восстановления: " + ex.Message); }
         };
-        f.Controls.Add(restore);
-
-        var taskManager = MakeButton("ДИСПЕТЧЕР ЗАДАЧ", 390, 590, 180, 42, panel2, text);
-        taskManager.Click += (_, _) =>
-        {
-            try { Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true }); }
-            catch (Exception ex) { MessageBox.Show(ex.Message); }
-        };
-        f.Controls.Add(taskManager);
-
-        var graphics = MakeButton("НАСТРОЙКИ ГРАФИКИ", 584, 590, 180, 42, panel2, text);
+        scroll.Controls.Add(restore);
+        var task = MakeButton("ДИСПЕТЧЕР ЗАДАЧ", 267, 846, 220, 42, panel2, text);
+        task.Click += (_, _) => { try { Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true }); } catch (Exception ex) { MessageBox.Show(ex.Message); } };
+        scroll.Controls.Add(task);
+        var graphics = MakeButton("НАСТРОЙКИ ГРАФИКИ", 499, 846, 241, 42, panel2, text);
         graphics.Click += (_, _) => OpenUrl("ms-settings:display-graphics");
-        f.Controls.Add(graphics);
+        scroll.Controls.Add(graphics);
 
-        f.Controls.Add(new Label
+        scroll.Controls.Add(new Label
         {
-            Text = "Не отключаем службы Windows, защиту, драйверы и системные компоненты. Увеличение FPS не гарантируется: результат зависит от игры, настроек и драйверов.",
-            Location = new Point(28, 650), Size = new Size(730, 42),
-            ForeColor = muted, Font = new Font("Segoe UI", 8)
+            Text = "Оптимизация не разгоняет оборудование и не отключает защиту Windows. Прирост FPS не гарантируется.",
+            Location = new Point(32, 902), Size = new Size(710, 32), ForeColor = muted, Font = new Font("Segoe UI", 8)
         });
         f.ShowDialog(this);
     }
