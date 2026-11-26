@@ -752,7 +752,13 @@ internal sealed class MainForm : Form
         string os = ReadWmi("Win32_OperatingSystem", "Caption");
         string version = ReadWmi("Win32_OperatingSystem", "Version");
         string ram;
-        try { ram = $"{Math.Round(double.Parse(ReadWmi(\"Win32_ComputerSystem\", \"TotalPhysicalMemory\")) / 1024d / 1024d / 1024d)} ГБ"; }
+        try
+        {
+            string memoryText = ReadWmi("Win32_ComputerSystem", "TotalPhysicalMemory");
+            ram = ulong.TryParse(memoryText, out ulong bytes)
+                ? $"{Math.Round(bytes / 1024d / 1024d / 1024d)} ГБ"
+                : "Не удалось определить";
+        }
         catch { ram = "Не удалось определить"; }
 
         return new PcSpecs(cpu, gpu, ram, os + " (" + version + ")",
