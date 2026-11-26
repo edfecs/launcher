@@ -3,7 +3,6 @@
 <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>FortniteBoosterPRO</AssemblyName><ApplicationIcon>Assets/FortniteBoosterPRO.ico</ApplicationIcon><RootNamespace>FortniteBoosterPRO</RootNamespace><Version>2.0.0</Version>
 </PropertyGroup>  <ItemGroup><PackageReference Include="System.Management" Version="8.0.0" /></ItemGroup>
   <ItemGroup>
-    <Content Include="Assets/FortniteBoosterPRO.png" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="Assets/FortniteBoosterPRO.ico" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Assets/FortniteBoosterPRO.png" />
   </ItemGroup>
 </Project>

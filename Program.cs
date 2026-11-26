@@ -114,13 +114,11 @@ internal sealed class MainForm : Form
         shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var top = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(10, 12, 18), Margin = Padding.Empty };
-        string assets = Path.Combine(AppContext.BaseDirectory, "Assets");
-        string brandPath = Path.Combine(assets, "FortniteBoosterPRO.png");
-        if (File.Exists(brandPath))
+        try
         {
-            try
+            using var stream = typeof(MainForm).Assembly.GetManifestResourceStream("FortniteBoosterPRO.Assets.FortniteBoosterPRO.png");
+            if (stream != null)
             {
-                using var stream = new FileStream(brandPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 using var image = Image.FromStream(stream);
                 top.Controls.Add(new PictureBox
                 {
@@ -128,8 +126,8 @@ internal sealed class MainForm : Form
                     SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent
                 });
             }
-            catch { }
         }
+        catch { }
 
         top.Controls.Add(new Label
         {
@@ -215,8 +213,7 @@ internal sealed class MainForm : Form
 
         try
         {
-            string iconPath = Path.Combine(assets, "FortniteBoosterPRO.ico");
-            if (File.Exists(iconPath)) Icon = new Icon(iconPath);
+            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
         }
         catch { }
         UpdateProfileButton();
