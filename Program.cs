@@ -438,48 +438,128 @@ internal sealed class MainForm : Form
     private void RenderGameCards()
     {
         if (gameGrid == null || gameGrid.IsDisposed) return;
+
         gameGrid.SuspendLayout();
-        foreach (Control oldCard in gameGrid.Controls)
-            foreach (Control child in oldCard.Controls)
-                if (child is PictureBox pb) { var previous = pb.Image; pb.Image = null; previous?.Dispose(); }
+        // Dispose the complete old card (including its artwork and child controls)
+        // before rebuilding, otherwise stale controls can remain layered underneath.
+        foreach (Control oldCard in gameGrid.Controls.Cast<Control>().ToArray())
+            oldCard.Dispose();
         gameGrid.Controls.Clear();
+
         foreach (var game in data.Games)
         {
-            var card = new Panel { Size = new Size(220, 220), BackColor = panel, Margin = new Padding(0, 0, 16, 16), Cursor = Cursors.Hand, Tag = game.Name };
-            var artwork = new PictureBox
-            {
-                Location = new Point(0, 0), Size = new Size(220, 142), BackColor = Color.FromArgb(29, 34, 44),
-                SizeMode = PictureBoxSizeMode.Zoom, Cursor = Cursors.Hand
-            };
-            Image? image = null;
+            Image? artworkImage = null;
             if (game.IsFortnite && cover != null)
-                image = new Bitmap(cover);
+                artworkImage = new Bitmap(cover);
             else if (!string.IsNullOrWhiteSpace(game.ArtworkPath) && File.Exists(game.ArtworkPath))
             {
-                try { using var fs = new FileStream(game.ArtworkPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); using var source = Image.FromStream(fs); image = new Bitmap(source); } catch { }
+                try
+                {
+                    using var fs = new FileStream(game.ArtworkPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var source = Image.FromStream(fs);
+                    artworkImage = new Bitmap(source);
+                }
+                catch { }
             }
-            artwork.Image = image;
-            card.Controls.Add(artwork);
+
+            // One single, full-bleed tile: artwork is cropped to cover the entire card,
+            // like the Epic Games library, instead of being letterboxed in a small PictureBox.
+            var card = new Panel
+            {
+                Size = new Size(220, 270),
+                BackColor = Color.FromArgb(25, 29, 38),
+                Margin = new Padding(0, 0, 16, 16),
+                Cursor = Cursors.Hand,
+                Tag = game.Name
+            };
+
+            bool hovered = false;
+            card.Paint += (_, e) =>
+            {
+                var g = e.Graphics;
+                var bounds = card.ClientRectangle;
+                g.SmoothingMode = SmoothingMode.HighQuality;
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+
+                if (artworkImage != null)
+                {
+                    float scale = Math.Max((float)bounds.Width / artworkImage.Width,
+                                            (float)bounds.Height / artworkImage.Height);
+                    int drawWidth = (int)Math.Ceiling(artworkImage.Width * scale);
+                    int drawHeight = (int)Math.Ceiling(artworkImage.Height * scale);
+                    var destination = new Rectangle((bounds.Width - drawWidth) / 2,
+                                                     (bounds.Height - drawHeight) / 2,
+                                                     drawWidth, drawHeight);
+                    var oldClip = g.Clip;
+                    g.SetClip(bounds);
+                    g.DrawImage(artworkImage, destination);
+                    g.Clip = oldClip;
+                }
+                else
+                {
+                    using var fallback = new LinearGradientBrush(bounds,
+                        Color.FromArgb(53, 77, 115), Color.FromArgb(20, 24, 34),
+                        LinearGradientMode.Vertical);
+                    g.FillRectangle(fallback, bounds);
+                }
+
+                using (var shade = new LinearGradientBrush(bounds,
+                    Color.FromArgb(0, 5, 8, 15), Color.FromArgb(238, 5, 8, 15),
+                    LinearGradientMode.Vertical))
+                    g.FillRectangle(shade, bounds);
+
+                using var border = new Pen(hovered ? blue : Color.FromArgb(55, 255, 255, 255),
+                                           hovered ? 2.2f : 1f);
+                g.DrawRectangle(border, 1, 1, bounds.Width - 3, bounds.Height - 3);
+            };
+            card.Disposed += (_, _) => artworkImage?.Dispose();
+
             var gameName = new Label
             {
-                Text = game.Name.ToUpperInvariant(), Location = new Point(12, 151), Size = new Size(196, 25),
-                ForeColor = text, BackColor = panel, Font = new Font("Segoe UI", 10, FontStyle.Bold), AutoEllipsis = true, Cursor = Cursors.Hand
+                Text = game.Name.ToUpperInvariant(),
+                Location = new Point(12, 205),
+                Size = new Size(196, 28),
+                ForeColor = Color.White,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 11, FontStyle.Bold),
+                AutoEllipsis = true,
+                Cursor = Cursors.Hand
             };
-            card.Controls.Add(gameName);
             var status = new Label
             {
-                Text = game.IsFortnite ? (File.Exists(Current.GamePath) ? "ГОТОВА К ЗАПУСКУ" : "НАСТРОИТЬ РАСПОЛОЖЕНИЕ") :
-                    (File.Exists(game.ExePath) ? "ГОТОВА К ЗАПУСКУ" : "ПУТЬ НЕ НАЙДЕН"),
-                Location = new Point(12, 181), Size = new Size(196, 20), ForeColor = muted, BackColor = panel,
-                Font = new Font("Segoe UI", 7, FontStyle.Bold)
+                Text = game.IsFortnite
+                    ? (File.Exists(Current.GamePath) ? "●  ГОТОВА К ЗАПУСКУ" : "○  НАСТРОИТЬ РАСПОЛОЖЕНИЕ")
+                    : (File.Exists(game.ExePath) ? "●  ГОТОВА К ЗАПУСКУ" : "○  ПУТЬ НЕ НАЙДЕН"),
+                Location = new Point(12, 237),
+                Size = new Size(196, 20),
+                ForeColor = Color.FromArgb(220, 225, 235),
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 7, FontStyle.Bold),
+                Cursor = Cursors.Hand
             };
+            card.Controls.Add(gameName);
             card.Controls.Add(status);
-            void OpenGame() { if (game.IsFortnite) ShowGameDetails(); else LaunchAddedGame(game); }
-            card.Click += (_, _) => OpenGame(); artwork.Click += (_, _) => OpenGame();
-            gameName.Click += (_, _) => OpenGame(); status.Click += (_, _) => OpenGame();
+
+            void OpenGame()
+            {
+                if (game.IsFortnite) ShowGameDetails();
+                else LaunchAddedGame(game);
+            }
+
+            card.Click += (_, _) => OpenGame();
+            gameName.Click += (_, _) => OpenGame();
+            status.Click += (_, _) => OpenGame();
+            card.MouseEnter += (_, _) => { hovered = true; card.Invalidate(); };
+            card.MouseLeave += (_, _) => { hovered = false; card.Invalidate(); };
+            gameName.MouseEnter += (_, _) => { hovered = true; card.Invalidate(); };
+            gameName.MouseLeave += (_, _) => { hovered = false; card.Invalidate(); };
+            status.MouseEnter += (_, _) => { hovered = true; card.Invalidate(); };
+            status.MouseLeave += (_, _) => { hovered = false; card.Invalidate(); };
+
             gameGrid.Controls.Add(card);
         }
-        gameGrid.ResumeLayout();
+
+        gameGrid.ResumeLayout(true);
     }
 
     private void AddGame()
