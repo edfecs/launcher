@@ -13,6 +13,19 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: Restore supplied logo and generate Windows icon
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force Assets | Out-Null
+          [IO.File]::WriteAllBytes("Assets/FortniteBoosterPRO.png", [Convert]::FromBase64String((Get-Content "Assets/FortniteBoosterPRO.png.b64" -Raw)))
+          $png = [IO.File]::ReadAllBytes("Assets/FortniteBoosterPRO.png")
+          $stream = [IO.File]::Create("Assets/FortniteBoosterPRO.ico")
+          $writer = [IO.BinaryWriter]::new($stream)
+          $writer.Write([UInt16]0); $writer.Write([UInt16]1); $writer.Write([UInt16]1)
+          $writer.Write([Byte]0); $writer.Write([Byte]0); $writer.Write([Byte]0); $writer.Write([Byte]0)
+          $writer.Write([UInt16]1); $writer.Write([UInt16]32)
+          $writer.Write([UInt32]$png.Length); $writer.Write([UInt32]22)
+          $writer.Write($png); $writer.Dispose()
       - name: Publish single-file Windows app
         run: dotnet publish .\FortniteBoosterPRO.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
       - uses: actions/upload-artifact@v4

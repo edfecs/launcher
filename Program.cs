@@ -102,33 +102,53 @@ internal sealed class MainForm : Form
 
     private void BuildShell()
     {
-        var top = new Panel { Dock = DockStyle.Top, Height = 76, BackColor = bg };
-        Controls.Add(top);
-        var logo = new Label
+        // Fixed two-column shell: navigation and page content never overlap.
+        var shell = new TableLayoutPanel
         {
-            Text = "FORTNITE  /  BOOSTER",
-            Location = new Point(28, 21),
-            Size = new Size(285, 34),
-            Font = new Font("Segoe UI", 16, FontStyle.Bold),
-            ForeColor = text
+            Dock = DockStyle.Fill, BackColor = bg, ColumnCount = 2, RowCount = 2,
+            Margin = Padding.Empty, Padding = Padding.Empty
         };
-        top.Controls.Add(logo);
+        shell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220));
+        shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
+        shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        var top = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(10, 12, 18), Margin = Padding.Empty };
+        string assets = Path.Combine(AppContext.BaseDirectory, "Assets");
+        string brandPath = Path.Combine(assets, "FortniteBoosterPRO.png");
+        if (File.Exists(brandPath))
+        {
+            try
+            {
+                using var stream = new FileStream(brandPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var image = Image.FromStream(stream);
+                top.Controls.Add(new PictureBox
+                {
+                    Image = new Bitmap(image), Location = new Point(24, 10), Size = new Size(54, 54),
+                    SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent
+                });
+            }
+            catch { }
+        }
+
+        top.Controls.Add(new Label
+        {
+            Text = "FORTNITE BOOSTER PRO", Location = new Point(88, 21), Size = new Size(270, 34),
+            Font = new Font("Segoe UI", 15, FontStyle.Bold), ForeColor = text, BackColor = Color.Transparent
+        });
 
         var search = new TextBox
         {
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(Width - 650, 21),
-            Size = new Size(240, 34),
-            BackColor = panel,
-            ForeColor = text,
-            BorderStyle = BorderStyle.FixedSingle,
-            PlaceholderText = "Поиск в библиотеке"
+            Size = new Size(220, 34), BackColor = panel, ForeColor = text,
+            BorderStyle = BorderStyle.FixedSingle, PlaceholderText = "⌕  Поиск в библиотеке",
+            Font = new Font("Segoe UI", 9)
         };
         search.TextChanged += (_, _) =>
         {
             if (currentPage == "library" && hero != null)
             {
-                bool show = string.IsNullOrWhiteSpace(search.Text) || "fortnite".Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase);
+                bool show = string.IsNullOrWhiteSpace(search.Text) ||
+                    "fortnite".Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase);
                 hero.Visible = show;
                 gameTile.Visible = show;
             }
@@ -137,65 +157,68 @@ internal sealed class MainForm : Form
 
         profileButton = new Label
         {
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(Width - 400, 20),
-            Size = new Size(170, 36),
-            BackColor = panel2,
-            ForeColor = text,
-            TextAlign = ContentAlignment.MiddleCenter,
-            Cursor = Cursors.Hand,
+            Size = new Size(170, 36), BackColor = panel2, ForeColor = text,
+            TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand,
             Font = new Font("Segoe UI", 9, FontStyle.Bold)
         };
         profileButton.Click += (_, _) => ShowProfiles();
         top.Controls.Add(profileButton);
 
         var settings = MakeButton("⚙", 0, 19, 42, 38, panel2, text);
-        settings.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        settings.Location = new Point(Width - 66, 19);
         settings.Font = new Font("Segoe UI Symbol", 15);
         settings.Click += (_, _) => ShowSettings();
         top.Controls.Add(settings);
 
         var boost = MakeButton("BOOST", 0, 19, 88, 38, blue, Color.FromArgb(5, 20, 29));
-        boost.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        boost.Location = new Point(Width - 165, 19);
         boost.Click += (_, _) => ShowBoost();
         top.Controls.Add(boost);
 
-        var divider = new Panel { Dock = DockStyle.Top, Height = 1, BackColor = Color.FromArgb(42, 47, 58) };
-        Controls.Add(divider);
-
-        var sidebar = new Panel { Dock = DockStyle.Left, Width = 220, BackColor = panel };
-        Controls.Add(sidebar);
-        var sideTitle = new Label
+        void LayoutHeader()
         {
-            Text = "БИБЛИОТЕКА",
-            Location = new Point(23, 27),
-            Size = new Size(175, 22),
-            ForeColor = muted,
-            Font = new Font("Segoe UI", 8, FontStyle.Bold)
-        };
-        sidebar.Controls.Add(sideTitle);
+            settings.Location = new Point(top.ClientSize.Width - 58, 19);
+            boost.Location = new Point(top.ClientSize.Width - 158, 19);
+            profileButton.Location = new Point(top.ClientSize.Width - 350, 20);
+            search.Location = new Point(top.ClientSize.Width - 590, 21);
+        }
+        top.Resize += (_, _) => LayoutHeader();
+        LayoutHeader();
+
+        var sidebar = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(19, 22, 29), Margin = Padding.Empty };
+        sidebar.Controls.Add(new Label
+        {
+            Text = "БИБЛИОТЕКА", Location = new Point(23, 27), Size = new Size(175, 22),
+            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        });
         AddNav(sidebar, "▦   Главная", 68, () => ShowLibrary());
         AddNav(sidebar, "◈   Fortnite", 116, () => ShowGameDetails());
         AddNav(sidebar, "▣   Мой ПК", 164, () => ShowPcSpecs());
         AddNav(sidebar, "⚙   Настройки", 212, () => ShowSettings());
-        var bottom = new Label
+        sidebar.Controls.Add(new Label
         {
-            Text = "FORTNITE BOOSTER PRO\nBUILD 2.0  •  WINDOWS",
-            Location = new Point(22, 760),
-            Size = new Size(180, 44),
-            ForeColor = Color.FromArgb(91, 101, 118),
-            Font = new Font("Segoe UI", 7, FontStyle.Bold),
+            Text = "FORTNITE BOOSTER PRO\nBUILD 2.1  •  WINDOWS",
+            Location = new Point(22, 0), Size = new Size(180, 44),
+            ForeColor = Color.FromArgb(111, 121, 143), Font = new Font("Segoe UI", 7, FontStyle.Bold),
             Anchor = AnchorStyles.Left | AnchorStyles.Bottom
-        };
-        sidebar.Controls.Add(bottom);
+        });
 
-        content = new Panel { Dock = DockStyle.Fill, BackColor = bg, AutoScroll = true, Padding = new Padding(28, 24, 28, 25) };
-        Controls.Add(content);
-        content.BringToFront();
-        sidebar.BringToFront();
-        top.BringToFront();
+        content = new Panel
+        {
+            Dock = DockStyle.Fill, BackColor = bg, AutoScroll = true,
+            Padding = new Padding(28, 24, 28, 25), Margin = Padding.Empty
+        };
+
+        shell.Controls.Add(top, 0, 0);
+        shell.SetColumnSpan(top, 2);
+        shell.Controls.Add(sidebar, 0, 1);
+        shell.Controls.Add(content, 1, 1);
+        Controls.Add(shell);
+
+        try
+        {
+            string iconPath = Path.Combine(assets, "FortniteBoosterPRO.ico");
+            if (File.Exists(iconPath)) Icon = new Icon(iconPath);
+        }
+        catch { }
         UpdateProfileButton();
     }
 
@@ -664,28 +687,58 @@ internal sealed class MainForm : Form
             if (currentPage == "game") ShowGameDetails();
         };
         f.Controls.Add(save);
+        var shortcut = MakeButton("⌑  СОЗДАТЬ ЯРЛЫК НА РАБОЧЕМ СТОЛЕ", 24, 515, 590, 38, panel2, text);
+        shortcut.Click += (_, _) =>
+        {
+            try
+            {
+                CreateDesktopShortcut();
+                MessageBox.Show("Ярлык Fortnite Booster PRO создан на рабочем столе.", "Готово",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex) { MessageBox.Show("Не удалось создать ярлык: " + ex.Message, "Ошибка"); }
+        };
+        f.Controls.Add(shortcut);
         f.ShowDialog(this);
+    }
+
+    private void CreateDesktopShortcut()
+    {
+        string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        string shortcutPath = Path.Combine(desktop, "Fortnite Booster PRO.lnk");
+        Type shellType = Type.GetTypeFromProgID("WScript.Shell")
+            ?? throw new InvalidOperationException("Компонент создания ярлыков Windows недоступен.");
+        dynamic shell = Activator.CreateInstance(shellType)
+            ?? throw new InvalidOperationException("Не удалось запустить компонент Windows Script Host.");
+        dynamic link = shell.CreateShortcut(shortcutPath);
+        link.TargetPath = Application.ExecutablePath;
+        link.WorkingDirectory = AppContext.BaseDirectory;
+        link.Description = "Fortnite Booster PRO";
+        link.IconLocation = Application.ExecutablePath + ",0";
+        link.Save();
     }
 
     private Form CreateDialog(string title, int w, int h)
     {
         var f = new Form
         {
-            Text = title,
-            Size = new Size(w, h),
-            StartPosition = FormStartPosition.CenterParent,
-            BackColor = bg,
-            ForeColor = text,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            Font = new Font("Segoe UI", 9)
+            Text = title, Size = new Size(w, h), StartPosition = FormStartPosition.CenterParent,
+            BackColor = bg, ForeColor = text, FormBorderStyle = FormBorderStyle.None,
+            MaximizeBox = false, MinimizeBox = false, Font = new Font("Segoe UI", 9),
+            ShowInTaskbar = false
         };
-        f.Controls.Add(new Label
+        var header = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = Color.FromArgb(20, 23, 31) };
+        header.Controls.Add(new Label
         {
-            Text = title, Location = new Point(24, 20), Size = new Size(w - 60, 32),
-            ForeColor = text, Font = new Font("Segoe UI", 16, FontStyle.Bold)
+            Text = title, Location = new Point(22, 13), Size = new Size(w - 90, 27),
+            ForeColor = text, Font = new Font("Segoe UI", 11, FontStyle.Bold)
         });
+        var close = MakeButton("×", w - 48, 8, 36, 36, Color.FromArgb(20, 23, 31), muted);
+        close.Font = new Font("Segoe UI", 16);
+        close.Click += (_, _) => f.Close();
+        header.Controls.Add(close);
+        f.Controls.Add(header);
+        f.Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = Color.FromArgb(53, 59, 73) });
         return f;
     }
 
