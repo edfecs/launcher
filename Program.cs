@@ -83,7 +83,7 @@ internal sealed class PremiumButton : Button
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        e.Graphics.Clear(Parent?.BackColor ?? Color.Black);
+        e.Graphics.Clear(BackColor);
         var rect = ClientRectangle;
         rect.Width -= 1; rect.Height -= 1;
         int radius = Math.Min(10, Math.Max(4, Height / 5));
@@ -99,6 +99,15 @@ internal sealed class PremiumButton : Button
         e.Graphics.FillPath(brush, path);
         using var border = new Pen(hovered ? Color.FromArgb(105, 255, 255, 255) : Color.FromArgb(28, 255, 255, 255), 1);
         e.Graphics.DrawPath(border, path);
+        int textLeft = 8;
+        if (Image != null)
+        {
+            int imageW = Image.Width, imageH = Image.Height;
+            int imageX = TextAlign == ContentAlignment.MiddleLeft ? 15 : Math.Max(8, (rect.Width - imageW) / 2);
+            int imageY = (rect.Height - imageH) / 2;
+            e.Graphics.DrawImage(Image, new Rectangle(imageX, imageY, imageW, imageH));
+            textLeft = imageX + imageW + 12;
+        }
         TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine;
         if (TextAlign == ContentAlignment.MiddleLeft || TextAlign == ContentAlignment.TopLeft || TextAlign == ContentAlignment.BottomLeft)
             flags |= TextFormatFlags.Left;
@@ -106,7 +115,8 @@ internal sealed class PremiumButton : Button
             flags |= TextFormatFlags.Right;
         else
             flags |= TextFormatFlags.HorizontalCenter;
-        TextRenderer.DrawText(e.Graphics, Text, Font, Rectangle.Inflate(rect, -8, -2), ForeColor, flags);
+        var textRect = new Rectangle(textLeft, 2, Math.Max(0, rect.Width - textLeft - 8), rect.Height - 4);
+        TextRenderer.DrawText(e.Graphics, Text, Font, textRect, ForeColor, flags);
     }
 }
 
@@ -200,7 +210,7 @@ internal sealed class MainForm : Form
             if (updateSettings.AutoCheck) await CheckForUpdatesAsync(false);
         };
         refreshTimer.Start();
-        fadeTimer = new System.Windows.Forms.Timer { Interval = 15 };
+        fadeTimer = new System.Windows.Forms.Timer { Interval = 33 };
         fadeTimer.Tick += (_, _) =>
         {
             // Use elapsed time instead of a fixed increment: timer jitter no longer
@@ -214,8 +224,8 @@ internal sealed class MainForm : Form
                 fadeFromIndex = -1;
                 fadeProgress = 1f;
             }
-            if (hero != null && !hero.IsDisposed) hero.Invalidate();
-            if (gameHero != null && !gameHero.IsDisposed) gameHero.Invalidate();
+            if (hero != null && !hero.IsDisposed && hero.Visible) hero.Invalidate();
+            if (gameHero != null && !gameHero.IsDisposed && gameHero.Visible) gameHero.Invalidate();
         };
         bannerTimer = new System.Windows.Forms.Timer { Interval = 8500 };
         bannerTimer.Tick += (_, _) => ChangeBanner(1);
@@ -384,20 +394,10 @@ internal sealed class MainForm : Form
 
     private void AddNav(Control parent, string iconName, string title, int y, Action action)
     {
-        var b = MakeButton(title, 12, y, 194, 40, panel, muted);
+        var b = MakeButton(title, 12, y, 194, 42, panel, muted);
         b.TextAlign = ContentAlignment.MiddleLeft;
-        b.Padding = new Padding(44, 0, 0, 0);
-        var icon = LoadSvgIcon(iconName, 19, 19);
-        if (icon != null)
-        {
-            var picture = new PictureBox
-            {
-                Image = icon, Size = new Size(19, 19), Location = new Point(14, 10),
-                SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent
-            };
-            b.Controls.Add(picture);
-            picture.Click += (_, _) => action();
-        }
+        b.Padding = new Padding(0, 0, 8, 0);
+        b.Image = LoadSvgIcon(iconName, 19, 19);
         b.Click += (_, _) => action();
         parent.Controls.Add(b);
     }
@@ -1317,9 +1317,14 @@ internal sealed class MainForm : Form
             float eased = t * t * (3f - 2f * t); // smoothstep, no abrupt acceleration
             if (previous != null && t < 1f)
             {
-                g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
-                DrawCoverImage(g, previous, bounds, 1f);
-                DrawCoverImage(g, current, bounds, eased);
+                using var frame = new Bitmap(Math.Max(1, bounds.Width), Math.Max(1, bounds.Height));
+                using (var fg = Graphics.FromImage(frame))
+                {
+                    fg.Clear(Color.FromArgb(12, 16, 26));
+                    DrawCoverImage(fg, previous, bounds, 1f);
+                    DrawCoverImage(fg, current, bounds, eased);
+                }
+                g.DrawImageUnscaled(frame, bounds.Location);
             }
             else
             {
