@@ -729,95 +729,151 @@ internal sealed class MainForm : Form
     {
         currentPage = "game";
         ResetContent();
+
         content.Controls.Add(new Label
         {
             Text = "БИБЛИОТЕКА  /  FORTNITE",
-            Location = new Point(2, 0),
-            Size = new Size(500, 22),
-            ForeColor = muted,
-            Font = new Font("Segoe UI", 8, FontStyle.Bold)
+            Location = new Point(2, 0), Size = new Size(500, 22),
+            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
         });
 
         var art = new Panel
         {
             Location = new Point(0, 36),
-            Size = new Size(Math.Max(700, content.ClientSize.Width - 58), 330),
+            Size = new Size(Math.Max(700, content.ClientSize.Width - 58), 340),
             BackColor = Color.FromArgb(30, 65, 95),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
         };
         art.Paint += PaintHero;
         gameHero = art;
         content.Controls.Add(art);
+
         art.Controls.Add(new Label
         {
-            Text = "EPIC GAMES  /  FREE TO PLAY",
-            Location = new Point(34, 28), Size = new Size(300, 20),
+            Text = "EPIC GAMES  /  БЕСПЛАТНАЯ ИГРА",
+            Location = new Point(34, 28), Size = new Size(360, 20),
             ForeColor = Color.FromArgb(210, 230, 245), BackColor = Color.Transparent,
             Font = new Font("Segoe UI", 8, FontStyle.Bold)
         });
         art.Controls.Add(new Label
         {
             Text = "FORTNITE",
-            Location = new Point(35, 80),
-            Size = new Size(500, 72),
-            ForeColor = Color.White,
-            BackColor = Color.Transparent,
+            Location = new Point(35, 80), Size = new Size(500, 72),
+            ForeColor = Color.White, BackColor = Color.Transparent,
             Font = new Font("Segoe UI", 42, FontStyle.Bold)
         });
         art.Controls.Add(new Label
         {
-            Text = "Battle Royale  •  Windows  •  Free to Play",
-            Location = new Point(42, 160),
-            Size = new Size(500, 28),
-            ForeColor = Color.White,
-            BackColor = Color.Transparent
+            Text = "Сражайся, исследуй остров и побеждай вместе с друзьями.",
+            Location = new Point(42, 160), Size = new Size(560, 30),
+            ForeColor = Color.White, BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 10)
         });
 
         var installed = File.Exists(Current.GamePath);
         var state = new Label
         {
-            Text = installed ? "●  ИГРА ГОТОВА К ЗАПУСКУ" : "○  УКAЖИ ПУТЬ К ИГРЕ ИЛИ УСТАНОВИ ЕЁ",
-            Location = new Point(4, 390),
-            Size = new Size(520, 24),
+            Text = installed ? "ИГРА УСТАНОВЛЕНА  •  ГОТОВА К ЗАПУСКУ" : "ИГРА НЕ НАЙДЕНА  •  УКAЖИ ПУТЬ ИЛИ УСТАНОВИ ЕЁ",
+            Location = new Point(4, 394), Size = new Size(600, 24),
             ForeColor = installed ? Color.FromArgb(105, 222, 157) : muted,
             Font = new Font("Segoe UI", 9, FontStyle.Bold)
         };
         content.Controls.Add(state);
 
-        var install = MakeButton("↓   УСТАНОВИТЬ", 0, 430, 180, 48, blue, Color.FromArgb(5, 20, 29));
+        var install = MakeButton("УСТАНОВИТЬ", 0, 432, 165, 46, blue, Color.FromArgb(5, 20, 29));
         install.Click += (_, _) => OpenUrl(epicPage);
         content.Controls.Add(install);
 
-        var play = MakeButton("▶   ИГРАТЬ", 194, 430, 145, 48, panel2, text);
+        var play = MakeButton("ЗАПУСТИТЬ ИГРУ", 178, 432, 175, 46, Color.FromArgb(245, 247, 250), Color.FromArgb(17, 25, 37));
         play.Click += (_, _) => LaunchFortnite();
         content.Controls.Add(play);
 
-        var configure = MakeButton("⚙   НАСТРОИТЬ", 353, 430, 165, 48, panel2, text);
+        var configure = MakeButton("НАСТРОЙКИ ИГРЫ", 366, 432, 190, 46, panel2, text);
         configure.Click += (_, _) => ShowSettings();
         content.Controls.Add(configure);
 
         content.Controls.Add(new Label
         {
-            Text = "ОБ ИГРЕ",
-            Location = new Point(4, 510),
-            Size = new Size(300, 25),
-            ForeColor = text,
-            Font = new Font("Segoe UI", 14, FontStyle.Bold)
+            Text = "ПОСЛЕДНИЕ ОБНОВЛЕНИЯ",
+            Location = new Point(4, 510), Size = new Size(480, 30),
+            ForeColor = text, Font = new Font("Segoe UI", 16, FontStyle.Bold)
         });
         content.Controls.Add(new Label
         {
-            Text = "Fortnite — бесплатная игра от Epic Games. Установка и обновления выполняются официальным Epic Games Launcher.\nBooster хранит твой путь к игре и настройки отдельно для каждого профиля.",
-            Location = new Point(5, 546),
-            Size = new Size(750, 58),
-            ForeColor = muted,
-            Font = new Font("Segoe UI", 9.5f)
+            Text = "НОВОСТИ И МАТЕРИАЛЫ FORTNITE",
+            Location = new Point(5, 543), Size = new Size(480, 18),
+            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
         });
-        var news = MakeButton("ОТКРЫТЬ НОВОСТИ FORTNITE  ↗", 4, 630, 245, 40, panel2, text);
-        news.Click += (_, _) => OpenUrl("https://www.fortnite.com/news");
-        content.Controls.Add(news);
-        var refreshArt = MakeButton("↻  ОБНОВИТЬ БАННЕРЫ", 260, 630, 210, 40, panel2, text);
-        refreshArt.Click += async (_, _) => await RefreshArtworkAsync();
-        content.Controls.Add(refreshArt);
+
+        var newsGrid = new FlowLayoutPanel
+        {
+            Location = new Point(0, 574),
+            Size = new Size(Math.Max(680, content.ClientSize.Width - 58), 250),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            AutoScroll = true, WrapContents = false, FlowDirection = FlowDirection.LeftToRight,
+            BackColor = Color.Transparent, Margin = Padding.Empty, Padding = new Padding(0, 4, 0, 8)
+        };
+        content.Controls.Add(newsGrid);
+        RenderFortniteNews(newsGrid);
+
+        var openNews = MakeButton("ВСЕ НОВОСТИ FORTNITE", 4, 845, 220, 40, panel2, text);
+        openNews.Click += (_, _) => OpenUrl("https://www.fortnite.com/news");
+        content.Controls.Add(openNews);
+        var refreshNews = MakeButton("ОБНОВИТЬ НОВОСТИ", 236, 845, 220, 40, panel2, text);
+        refreshNews.Click += async (_, _) => await RefreshArtworkAsync();
+        content.Controls.Add(refreshNews);
+    }
+
+    private void RenderFortniteNews(FlowLayoutPanel host)
+    {
+        host.Controls.Clear();
+        int count = Math.Min(banners.Count, bannerTitles.Count);
+        if (count == 0)
+        {
+            var empty = new Label
+            {
+                Text = "Новости пока не загружены. Нажми «Обновить новости», чтобы получить актуальные материалы.",
+                Size = new Size(560, 60), ForeColor = muted, Padding = new Padding(12),
+                BackColor = panel
+            };
+            host.Controls.Add(empty);
+            return;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            int index = i;
+            var card = new Panel
+            {
+                Size = new Size(250, 218), BackColor = panel,
+                Margin = new Padding(0, 0, 14, 0), Cursor = Cursors.Hand
+            };
+            var picture = new PictureBox
+            {
+                Location = new Point(0, 0), Size = new Size(250, 142),
+                SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.FromArgb(28, 31, 40),
+                Image = new Bitmap(banners[i])
+            };
+            card.Controls.Add(picture);
+            card.Controls.Add(new Label
+            {
+                Text = string.IsNullOrWhiteSpace(bannerTitles[i]) ? "НОВОСТИ FORTNITE" : bannerTitles[i].ToUpperInvariant(),
+                Location = new Point(12, 151), Size = new Size(226, 52),
+                ForeColor = text, Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                AutoEllipsis = true
+            });
+            card.Controls.Add(new Label
+            {
+                Text = "ОТКРЫТЬ НОВОСТИ  →",
+                Location = new Point(12, 198), Size = new Size(220, 16),
+                ForeColor = blue, Font = new Font("Segoe UI", 7, FontStyle.Bold)
+            });
+            card.Click += (_, _) => OpenUrl("https://www.fortnite.com/news");
+            picture.Click += (_, _) => OpenUrl("https://www.fortnite.com/news");
+            foreach (Control child in card.Controls)
+                if (child is Label label) label.Click += (_, _) => OpenUrl("https://www.fortnite.com/news");
+            host.Controls.Add(card);
+        }
     }
 
     private async Task RefreshArtworkAsync()
@@ -837,7 +893,7 @@ internal sealed class MainForm : Form
             catch { }
 
             if (items.Count > 0)
-                await DownloadAndCacheBannersAsync(items.Take(6).ToList());
+                await DownloadAndCacheBannersAsync(items.Take(10).ToList());
 
             if (cover == null)
             {
@@ -923,7 +979,7 @@ internal sealed class MainForm : Form
                     newImages.Add(image);
                     newTitles.Add(item.Title);
                     index++;
-                    if (index >= 6) break;
+                    if (index >= 10) break;
                 }
                 catch { }
             }
@@ -964,7 +1020,7 @@ internal sealed class MainForm : Form
         {
             var loaded = new List<Image>();
             var titles = new List<string>();
-            for (int i = 0; i < 6; i++)
+            for (int i = 0; i < 10; i++)
             {
                 string path = Path.Combine(root, $"fortnite-banner-{i}.jpg");
                 if (!File.Exists(path)) break;
@@ -1432,45 +1488,93 @@ internal sealed class MainForm : Form
 
     private void ShowBoost()
     {
-        using var f = CreateDialog("BOOST CENTER  /  СТАБИЛЬНОСТЬ FPS", 700, 650);
+        using var f = CreateDialog("ЦЕНТР ОПТИМИЗАЦИИ  /  СТАБИЛЬНОСТЬ FPS", 820, 760);
         f.Controls.Add(new Label
         {
-            Text = "НАСТРОЙ ПОВЕДЕНИЕ WINDOWS ПЕРЕД ЗАПУСКОМ ИГРЫ",
-            Location = new Point(26, 67), Size = new Size(620, 22),
+            Text = "ВЫБЕРИ РЕЖИМ И ОТМЕТЬ НУЖНЫЕ ПАРАМЕТРЫ",
+            Location = new Point(26, 67), Size = new Size(730, 22),
             ForeColor = blue, Font = new Font("Segoe UI", 8, FontStyle.Bold)
         });
         f.Controls.Add(new Label
         {
-            Text = "Выбирай только нужные параметры. Booster сохраняет исходные значения реестра и позволяет вернуть их.",
-            Location = new Point(26, 94), Size = new Size(630, 42), ForeColor = muted
+            Text = "Настройки применяются только к текущему пользователю Windows. Перед первым изменением сохраняются исходные значения реестра.",
+            Location = new Point(26, 94), Size = new Size(750, 38), ForeColor = muted
         });
+
+        f.Controls.Add(new Label
+        {
+            Text = "ПРОФИЛЬ ОПТИМИЗАЦИИ",
+            Location = new Point(28, 145), Size = new Size(250, 20),
+            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        });
+        var preset = new ComboBox
+        {
+            Location = new Point(28, 170), Size = new Size(735, 36),
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = panel2, ForeColor = text, FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 10)
+        };
+        preset.Items.AddRange(new object[] {
+            "Стабильность FPS — рекомендовано",
+            "Сбалансированный режим",
+            "Минимум фоновой записи"
+        });
+        preset.SelectedIndex = 0;
+        f.Controls.Add(preset);
+
         CheckBox AddOption(string title, string description, int y, bool isChecked)
         {
+            var card = new Panel
+            {
+                Location = new Point(26, y), Size = new Size(738, 76),
+                BackColor = panel, Padding = new Padding(12)
+            };
             var check = new CheckBox
             {
                 Text = title, Checked = isChecked, AutoSize = false,
-                Location = new Point(28, y), Size = new Size(620, 25),
-                ForeColor = text, BackColor = bg, Font = new Font("Segoe UI", 10, FontStyle.Bold)
+                Location = new Point(14, 9), Size = new Size(690, 25),
+                ForeColor = text, BackColor = panel,
+                Font = new Font("Segoe UI", 10, FontStyle.Bold)
             };
-            f.Controls.Add(check);
-            f.Controls.Add(new Label
+            card.Controls.Add(check);
+            card.Controls.Add(new Label
             {
-                Text = description, Location = new Point(52, y + 25), Size = new Size(590, 34),
+                Text = description, Location = new Point(38, 37), Size = new Size(675, 28),
                 ForeColor = muted, Font = new Font("Segoe UI", 8)
             });
+            f.Controls.Add(card);
             return check;
         }
-        var gameMode = AddOption("Включить Windows Game Mode", "Приоритет игрового режима Windows для активной игры.", 150, true);
-        var disableDvr = AddOption("Отключить фоновую запись Game DVR", "Убирает постоянную фоновую запись клипов; ручные способы записи могут быть недоступны.", 220, true);
-        var captureOff = AddOption("Отключить захват через Xbox Game Bar", "Отключает системный захват экрана для текущего пользователя.", 290, false);
+
+        var gameMode = AddOption("Игровой режим Windows", "Включает автоматическое применение игрового режима Windows.", 225, true);
+        var disableDvr = AddOption("Отключить фоновую запись", "Убирает постоянную запись игровых фрагментов и снижает лишнюю фоновую активность.", 310, true);
+        var captureOff = AddOption("Отключить захват Xbox Game Bar", "Отключает системный захват клипов. Используй, если не записываешь игровой процесс.", 395, false);
+
+        preset.SelectedIndexChanged += (_, _) =>
+        {
+            if (preset.SelectedIndex == 0)
+            {
+                gameMode.Checked = true; disableDvr.Checked = true; captureOff.Checked = false;
+            }
+            else if (preset.SelectedIndex == 1)
+            {
+                gameMode.Checked = true; disableDvr.Checked = false; captureOff.Checked = false;
+            }
+            else
+            {
+                gameMode.Checked = true; disableDvr.Checked = true; captureOff.Checked = true;
+            }
+        };
+
         var status = new Label
         {
-            Text = "СТАТУС: параметры ещё не менялись этим профилем.",
-            Location = new Point(28, 370), Size = new Size(620, 24),
+            Text = "СОСТОЯНИЕ: изменения ещё не применялись.",
+            Location = new Point(28, 490), Size = new Size(730, 24),
             ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
         };
         f.Controls.Add(status);
-        var apply = MakeButton("ПРИМЕНИТЬ ВЫБРАННЫЕ НАСТРОЙКИ", 26, 410, 620, 48, blue, Color.FromArgb(5, 20, 29));
+
+        var apply = MakeButton("ПРИМЕНИТЬ ВЫБРАННЫЙ ПРОФИЛЬ", 26, 530, 738, 48, blue, Color.FromArgb(5, 20, 29));
         apply.Click += (_, _) =>
         {
             try
@@ -1480,44 +1584,53 @@ internal sealed class MainForm : Form
                     SetUserDword(@"Software\Microsoft\GameBar", "AutoGameModeEnabled", 1);
                     SetUserDword(@"Software\Microsoft\GameBar", "AllowAutoGameMode", 1);
                 }
-                if (disableDvr.Checked) SetUserDword(@"System\GameConfigStore", "GameDVR_Enabled", 0);
-                if (captureOff.Checked)
-                    SetUserDword(@"Software\Microsoft\Windows\CurrentVersion\GameDVR", "AppCaptureEnabled", 0);
-                status.Text = "ГОТОВО: выбранные параметры применены. Для части изменений нужен перезапуск Windows.";
+                else
+                {
+                    SetUserDword(@"Software\Microsoft\GameBar", "AutoGameModeEnabled", 0);
+                    SetUserDword(@"Software\Microsoft\GameBar", "AllowAutoGameMode", 0);
+                }
+                SetUserDword(@"System\GameConfigStore", "GameDVR_Enabled", disableDvr.Checked ? 0 : 1);
+                SetUserDword(@"Software\Microsoft\Windows\CurrentVersion\GameDVR", "AppCaptureEnabled", captureOff.Checked ? 0 : 1);
+                status.Text = "ГОТОВО: выбранные параметры применены. Для некоторых изменений может понадобиться выход из системы.";
                 status.ForeColor = Color.FromArgb(105, 222, 157);
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Не удалось применить настройки: " + ex.Message, "Boost", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Не удалось применить настройки: " + ex.Message, "Оптимизация", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         };
         f.Controls.Add(apply);
-        var restore = MakeButton("↶  ВОССТАНОВИТЬ ИСХОДНЫЕ НАСТРОЙКИ", 26, 470, 300, 42, panel2, text);
+
+        var restore = MakeButton("ВОССТАНОВИТЬ ИСХОДНЫЕ ПАРАМЕТРЫ", 26, 590, 350, 42, panel2, text);
         restore.Click += (_, _) =>
         {
             try
             {
                 RestoreRegistryBackup();
-                status.Text = "ИСХОДНЫЕ ЗНАЧЕНИЯ WINDOWS ВОССТАНОВЛЕНЫ.";
+                status.Text = "ИСХОДНЫЕ ПАРАМЕТРЫ WINDOWS ВОССТАНОВЛЕНЫ.";
                 status.ForeColor = Color.FromArgb(105, 222, 157);
             }
             catch (Exception ex) { MessageBox.Show("Ошибка восстановления: " + ex.Message); }
         };
         f.Controls.Add(restore);
-        var taskManager = MakeButton("ДИСПЕТЧЕР ЗАДАЧ", 340, 470, 190, 42, panel2, text);
+
+        var taskManager = MakeButton("ДИСПЕТЧЕР ЗАДАЧ", 390, 590, 180, 42, panel2, text);
         taskManager.Click += (_, _) =>
         {
             try { Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true }); }
             catch (Exception ex) { MessageBox.Show(ex.Message); }
         };
         f.Controls.Add(taskManager);
-        var graphics = MakeButton("ПАРАМЕТРЫ ГРАФИКИ WINDOWS", 26, 522, 620, 38, panel2, text);
+
+        var graphics = MakeButton("НАСТРОЙКИ ГРАФИКИ", 584, 590, 180, 42, panel2, text);
         graphics.Click += (_, _) => OpenUrl("ms-settings:display-graphics");
         f.Controls.Add(graphics);
+
         f.Controls.Add(new Label
         {
-            Text = "Без разгона, отключения системных служб и сомнительных сетевых твиков. Реальный прирост FPS зависит от игры и драйверов.",
-            Location = new Point(28, 575), Size = new Size(620, 35), ForeColor = muted, Font = new Font("Segoe UI", 8)
+            Text = "Не отключаем службы Windows, защиту, драйверы и системные компоненты. Увеличение FPS не гарантируется: результат зависит от игры, настроек и драйверов.",
+            Location = new Point(28, 650), Size = new Size(730, 42),
+            ForeColor = muted, Font = new Font("Segoe UI", 8)
         });
         f.ShowDialog(this);
     }
