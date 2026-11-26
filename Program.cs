@@ -396,9 +396,20 @@ internal sealed class MainForm : Form
             string resource = $"FortniteBoosterPRO.Assets.Icons.{name}.svg";
             using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource);
             if (stream == null) return null;
-            var document = SvgDocument.Open(stream);
-            using var rendered = document.Draw(width, height);
-            return new Bitmap(rendered);
+            using var memory = new MemoryStream();
+            stream.CopyTo(memory);
+            string tempPath = Path.Combine(Path.GetTempPath(), "FortniteBooster-" + name + ".svg");
+            File.WriteAllBytes(tempPath, memory.ToArray());
+            try
+            {
+                var document = SvgDocument.Open(tempPath);
+                using var rendered = document.Draw(width, height);
+                return new Bitmap(rendered);
+            }
+            finally
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
         }
         catch { return null; }
     }
