@@ -150,7 +150,7 @@ internal sealed class MainForm : Form
             Text = "FORTNITE",
             Location = new Point(38, 104),
             Size = new Size(570, 76),
-            Font = new Font("Segoe UI", 43, FontStyle.Black),
+            Font = new Font("Segoe UI", 43, FontStyle.Bold),
             ForeColor = Color.White,
             BackColor = Color.Transparent
         };
