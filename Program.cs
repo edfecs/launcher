@@ -63,6 +63,9 @@ internal sealed class MainForm : Form
     private readonly List<string> bannerTitles = new();
     private int bannerIndex;
     private System.Windows.Forms.Timer bannerTimer = null!;
+    private System.Windows.Forms.Timer fadeTimer = null!;
+    private int fadeFromIndex = -1;
+    private float fadeProgress = 1f;
     private Label bannerHeadline = null!;
     private Label bannerCounter = null!;
     private Panel content = null!;
@@ -101,14 +104,34 @@ internal sealed class MainForm : Form
         refreshTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
         refreshTimer.Tick += async (_, _) => await RefreshArtworkAsync();
         refreshTimer.Start();
-        bannerTimer = new System.Windows.Forms.Timer { Interval = 8500 };
-        bannerTimer.Tick += (_, _) =>
+        fadeTimer = new System.Windows.Forms.Timer { Interval = 25 };
+        fadeTimer.Tick += (_, _) =>
         {
-            if (banners.Count < 2) return;
-            bannerIndex = (bannerIndex + 1) % banners.Count;
-            UpdateBannerPresentation();
+            fadeProgress = Math.Min(1f, fadeProgress + 0.075f);
+            if (fadeProgress >= 1f)
+            {
+                fadeTimer.Stop();
+                fadeFromIndex = -1;
+                UpdateBannerPresentation();
+            }
+            else
+            {
+                if (hero != null && !hero.IsDisposed) hero.Invalidate();
+                if (gameHero != null && !gameHero.IsDisposed) gameHero.Invalidate();
+            }
         };
+        bannerTimer = new System.Windows.Forms.Timer { Interval = 8500 };
+        bannerTimer.Tick += (_, _) => ChangeBanner(1);
         bannerTimer.Start();
+        FormClosed += (_, _) =>
+        {
+            bannerTimer?.Stop(); bannerTimer?.Dispose();
+            fadeTimer?.Stop(); fadeTimer?.Dispose();
+            refreshTimer?.Stop(); refreshTimer?.Dispose();
+            foreach (var image in banners) image.Dispose();
+            cover?.Dispose();
+            http.Dispose();
+        };
     }
 
     private void LoadData()
@@ -418,7 +441,7 @@ internal sealed class MainForm : Form
         });
         var addGame = MakeButton("+  ДОБАВИТЬ ИГРУ", 0, 470, 180, 38, blue, Color.FromArgb(5, 20, 29));
         addGame.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        addGame.Click += (_, _) => AddGame();
+        addGame.Click += async (_, _) => await AddGameAsync();
         content.Controls.Add(addGame);
         void PositionAddGame() => addGame.Location = new Point(Math.Max(350, content.ClientSize.Width - 220), 470);
         content.Resize += (_, _) => PositionAddGame();
@@ -556,17 +579,23 @@ internal sealed class MainForm : Form
             status.MouseEnter += (_, _) => { hovered = true; card.Invalidate(); };
             status.MouseLeave += (_, _) => { hovered = false; card.Invalidate(); };
 
+            var menu = new ContextMenuStrip();
+            menu.Items.Add("Открыть", null, (_, _) => OpenGame());
+            if (!game.IsFortnite) menu.Items.Add("Удалить из библиотеки", null, (_, _) => RemoveGame(game));
+            card.ContextMenuStrip = menu;
+            gameName.ContextMenuStrip = menu;
+            status.ContextMenuStrip = menu;
             gameGrid.Controls.Add(card);
         }
 
         gameGrid.ResumeLayout(true);
     }
 
-    private void AddGame()
+    private async Task AddGameAsync()
     {
         using var dialog = new OpenFileDialog
         {
-            Title = "Выбери EXE-файл игры — аватарка подтянется автоматически из иконки",
+            Title = "Выбери EXE-файл игры — Booster найдёт постер и иконку",
             Filter = "Игры и приложения (*.exe)|*.exe", CheckFileExists = true
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -584,6 +613,7 @@ internal sealed class MainForm : Form
             else if (!string.IsNullOrWhiteSpace(version.FileDescription)) name = version.FileDescription.Trim();
         }
         catch { }
+
         string artworkPath = Path.Combine(root, "game-" + Guid.NewGuid().ToString("N") + ".png");
         try
         {
@@ -591,25 +621,97 @@ internal sealed class MainForm : Form
             if (icon != null)
             {
                 using var bitmap = icon.ToBitmap();
-                using var scaled = new Bitmap(256, 256);
+                using var scaled = new Bitmap(320, 420);
                 using (var graphics = Graphics.FromImage(scaled))
                 {
-                    graphics.Clear(Color.Transparent);
+                    graphics.Clear(Color.FromArgb(22, 25, 32));
                     graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                    float scale = Math.Min(220f / bitmap.Width, 220f / bitmap.Height);
+                    float scale = Math.Min(270f / bitmap.Width, 270f / bitmap.Height);
                     int w = Math.Max(1, (int)(bitmap.Width * scale)), h = Math.Max(1, (int)(bitmap.Height * scale));
-                    graphics.DrawImage(bitmap, new Rectangle((256 - w) / 2, (256 - h) / 2, w, h));
+                    graphics.DrawImage(bitmap, new Rectangle((320 - w) / 2, (420 - h) / 2, w, h));
                 }
                 scaled.Save(artworkPath, System.Drawing.Imaging.ImageFormat.Png);
             }
         }
         catch { artworkPath = ""; }
-        data.Games.Add(new GameEntry { Name = name, ExePath = exe, ArtworkPath = artworkPath });
+
+        var game = new GameEntry { Name = name, ExePath = exe, ArtworkPath = artworkPath };
+        data.Games.Add(game);
         SaveData();
+        ShowLibrary();
+
+        string? onlineArtwork = await TryGetSteamArtworkAsync(name);
+        if (!string.IsNullOrWhiteSpace(onlineArtwork) && !IsDisposed)
+        {
+            string oldArtwork = game.ArtworkPath;
+            game.ArtworkPath = onlineArtwork;
+            SaveData();
+            if (!string.IsNullOrWhiteSpace(oldArtwork) && oldArtwork.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                try { if (File.Exists(oldArtwork)) File.Delete(oldArtwork); } catch { }
+            }
+            if (currentPage == "library") RenderGameCards();
+        }
+    }
+
+    private async Task<string?> TryGetSteamArtworkAsync(string gameName)
+    {
+        try
+        {
+            string searchUrl = "https://store.steampowered.com/api/storesearch/?term=" +
+                Uri.EscapeDataString(gameName) + "&l=english&cc=US";
+            using var response = await http.GetAsync(searchUrl);
+            response.EnsureSuccessStatusCode();
+            using var searchDoc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            if (!searchDoc.RootElement.TryGetProperty("items", out var items) ||
+                items.ValueKind != JsonValueKind.Array || items.GetArrayLength() == 0) return null;
+            int appId = items[0].TryGetProperty("id", out var idElement) ? idElement.GetInt32() : 0;
+            if (appId <= 0) return null;
+
+            using var detailsResponse = await http.GetAsync($"https://store.steampowered.com/api/appdetails?appids={appId}&cc=US&l=en");
+            detailsResponse.EnsureSuccessStatusCode();
+            using var detailsDoc = JsonDocument.Parse(await detailsResponse.Content.ReadAsStringAsync());
+            if (!detailsDoc.RootElement.TryGetProperty(appId.ToString(), out var app) ||
+                !app.TryGetProperty("data", out var dataElement) ||
+                !dataElement.TryGetProperty("header_image", out var imageElement)) return null;
+            string? imageUrl = imageElement.GetString();
+            if (!IsHttpImageUrl(imageUrl)) return null;
+
+            byte[] bytes = await http.GetByteArrayAsync(imageUrl!);
+            if (bytes.Length < 4000 || bytes.Length > 12_000_000) return null;
+            using var stream = new MemoryStream(bytes);
+            using var decoded = Image.FromStream(stream);
+            if (decoded.Width < 200 || decoded.Height < 100) return null;
+            string path = Path.Combine(root, "game-" + Guid.NewGuid().ToString("N") + ".jpg");
+            await File.WriteAllBytesAsync(path, bytes);
+            return path;
+        }
+        catch { return null; }
+    }
+
+    private void RemoveGame(GameEntry game)
+    {
+        if (game.IsFortnite)
+        {
+            MessageBox.Show("Fortnite — основная игра лаунчера, её нельзя удалить из библиотеки.",
+                "Fortnite Booster PRO", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (MessageBox.Show($"Удалить «{game.Name}» из библиотеки? Файлы игры останутся на компьютере.",
+            "Удаление игры", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        data.Games.Remove(game);
+        SaveData();
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(game.ArtworkPath) &&
+                game.ArtworkPath.StartsWith(root, StringComparison.OrdinalIgnoreCase) && File.Exists(game.ArtworkPath))
+                File.Delete(game.ArtworkPath);
+        }
+        catch { }
         ShowLibrary();
     }
 
-    private void LaunchAddedGame(GameEntry game)
+        private void LaunchAddedGame(GameEntry game)
     {
         try
         {
@@ -893,11 +995,16 @@ internal sealed class MainForm : Form
     private void ChangeBanner(int delta)
     {
         if (banners.Count < 2) return;
-        bannerIndex = (bannerIndex + delta + banners.Count) % banners.Count;
+        int next = (bannerIndex + delta + banners.Count) % banners.Count;
+        if (next == bannerIndex) return;
+        fadeFromIndex = bannerIndex;
+        bannerIndex = next;
+        fadeProgress = 0f;
+        if (fadeTimer != null) { fadeTimer.Stop(); fadeTimer.Start(); }
         UpdateBannerPresentation();
     }
 
-    private void UpdateBannerPresentation()
+        private void UpdateBannerPresentation()
     {
         if (IsDisposed) return;
         if (bannerHeadline != null && !bannerHeadline.IsDisposed &&
@@ -1001,26 +1108,39 @@ internal sealed class MainForm : Form
         var bounds = ((Control)sender!).ClientRectangle;
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.HighQuality;
-        Image? activeBanner = banners.Count > 0 && bannerIndex < banners.Count ? banners[bannerIndex] : cover;
-        if (activeBanner != null)
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        g.SetClip(bounds);
+
+        Image? current = banners.Count > 0 && bannerIndex >= 0 && bannerIndex < banners.Count ? banners[bannerIndex] : cover;
+        Image? previous = fadeFromIndex >= 0 && fadeFromIndex < banners.Count ? banners[fadeFromIndex] : null;
+        if (current != null)
         {
-            float scale = Math.Max((float)bounds.Width / activeBanner.Width, (float)bounds.Height / activeBanner.Height);
-            int w = (int)(activeBanner.Width * scale), h = (int)(activeBanner.Height * scale);
-            var previousClip = g.Clip;
-            g.SetClip(bounds);
-            g.DrawImage(activeBanner, new Rectangle((bounds.Width - w) / 2, (bounds.Height - h) / 2, w, h));
-            g.Clip = previousClip;
+            if (previous != null && fadeProgress < 1f) DrawCoverImage(g, previous, bounds, 1f - fadeProgress);
+            DrawCoverImage(g, current, bounds, previous == null ? 1f : fadeProgress);
         }
         else
         {
             using var gradient = new LinearGradientBrush(bounds, Color.FromArgb(43, 98, 145), Color.FromArgb(15, 20, 34), 15);
             g.FillRectangle(gradient, bounds);
         }
-        using var shade = new LinearGradientBrush(bounds, Color.FromArgb(210, 5, 10, 20), Color.FromArgb(15, 5, 10, 20), LinearGradientMode.Horizontal);
+        using var shade = new LinearGradientBrush(bounds, Color.FromArgb(205, 5, 10, 20),
+            Color.FromArgb(12, 5, 10, 20), LinearGradientMode.Horizontal);
         g.FillRectangle(shade, bounds);
     }
 
-    private void ShowProfiles()
+    private static void DrawCoverImage(Graphics graphics, Image image, Rectangle bounds, float opacity)
+    {
+        float scale = Math.Max((float)bounds.Width / image.Width, (float)bounds.Height / image.Height);
+        int width = (int)Math.Ceiling(image.Width * scale), height = (int)Math.Ceiling(image.Height * scale);
+        var destination = new Rectangle((bounds.Width - width) / 2, (bounds.Height - height) / 2, width, height);
+        using var attributes = new System.Drawing.Imaging.ImageAttributes();
+        var matrix = new System.Drawing.Imaging.ColorMatrix { Matrix33 = Math.Clamp(opacity, 0f, 1f) };
+        attributes.SetColorMatrix(matrix, System.Drawing.Imaging.ColorMatrixFlag.Default, System.Drawing.Imaging.ColorAdjustType.Bitmap);
+        graphics.DrawImage(image, destination, 0, 0, image.Width, image.Height, GraphicsUnit.Pixel, attributes);
+    }
+
+        private void ShowProfiles()
     {
         using var f = CreateDialog("ПРОФИЛИ ИГРОКОВ", 600, 520);
         var list = new ListBox
@@ -1312,40 +1432,138 @@ internal sealed class MainForm : Form
 
     private void ShowBoost()
     {
-        using var f = CreateDialog("ПРОФИЛЬ СТАБИЛЬНОСТИ FPS", 590, 410);
+        using var f = CreateDialog("BOOST CENTER  /  СТАБИЛЬНОСТЬ FPS", 700, 650);
         f.Controls.Add(new Label
         {
-            Text = "Профиль подбирается по автоматически определённым характеристикам ПК. Открой раздел «Мой ПК» для проверки.",
-            Location = new Point(25, 68), Size = new Size(530, 25), ForeColor = muted
+            Text = "НАСТРОЙ ПОВЕДЕНИЕ WINDOWS ПЕРЕД ЗАПУСКОМ ИГРЫ",
+            Location = new Point(26, 67), Size = new Size(620, 22),
+            ForeColor = blue, Font = new Font("Segoe UI", 8, FontStyle.Bold)
         });
         f.Controls.Add(new Label
         {
-            Text = "Профиль включает Windows Game Mode и отключает фоновую запись Game DVR для текущего пользователя.\nПеред изменениями создаётся резервная копия исходных значений.",
-            Location = new Point(25, 112), Size = new Size(530, 65), ForeColor = text
+            Text = "Выбирай только нужные параметры. Booster сохраняет исходные значения реестра и позволяет вернуть их.",
+            Location = new Point(26, 94), Size = new Size(630, 42), ForeColor = muted
         });
-        var apply = MakeButton("ПРИМЕНИТЬ БЕЗОПАСНЫЙ BOOST", 25, 205, 530, 48, blue, Color.FromArgb(5, 20, 29));
+        CheckBox AddOption(string title, string description, int y, bool isChecked)
+        {
+            var check = new CheckBox
+            {
+                Text = title, Checked = isChecked, AutoSize = false,
+                Location = new Point(28, y), Size = new Size(620, 25),
+                ForeColor = text, BackColor = bg, Font = new Font("Segoe UI", 10, FontStyle.Bold)
+            };
+            f.Controls.Add(check);
+            f.Controls.Add(new Label
+            {
+                Text = description, Location = new Point(52, y + 25), Size = new Size(590, 34),
+                ForeColor = muted, Font = new Font("Segoe UI", 8)
+            });
+            return check;
+        }
+        var gameMode = AddOption("Включить Windows Game Mode", "Приоритет игрового режима Windows для активной игры.", 150, true);
+        var disableDvr = AddOption("Отключить фоновую запись Game DVR", "Убирает постоянную фоновую запись клипов; ручные способы записи могут быть недоступны.", 220, true);
+        var captureOff = AddOption("Отключить захват через Xbox Game Bar", "Отключает системный захват экрана для текущего пользователя.", 290, false);
+        var status = new Label
+        {
+            Text = "СТАТУС: параметры ещё не менялись этим профилем.",
+            Location = new Point(28, 370), Size = new Size(620, 24),
+            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        };
+        f.Controls.Add(status);
+        var apply = MakeButton("ПРИМЕНИТЬ ВЫБРАННЫЕ НАСТРОЙКИ", 26, 410, 620, 48, blue, Color.FromArgb(5, 20, 29));
         apply.Click += (_, _) =>
         {
             try
             {
-                SetUserDword(@"Software\Microsoft\GameBar", "AutoGameModeEnabled", 1);
-                SetUserDword(@"Software\Microsoft\GameBar", "AllowAutoGameMode", 1);
-                SetUserDword(@"System\GameConfigStore", "GameDVR_Enabled", 0);
-                SetUserDword(@"Software\Microsoft\Windows\CurrentVersion\GameDVR", "AppCaptureEnabled", 0);
-                MessageBox.Show("Параметры применены. Перезагрузи Windows перед сравнительным тестом FPS.", "Fortnite Booster PRO", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (gameMode.Checked)
+                {
+                    SetUserDword(@"Software\Microsoft\GameBar", "AutoGameModeEnabled", 1);
+                    SetUserDword(@"Software\Microsoft\GameBar", "AllowAutoGameMode", 1);
+                }
+                if (disableDvr.Checked) SetUserDword(@"System\GameConfigStore", "GameDVR_Enabled", 0);
+                if (captureOff.Checked)
+                    SetUserDword(@"Software\Microsoft\Windows\CurrentVersion\GameDVR", "AppCaptureEnabled", 0);
+                status.Text = "ГОТОВО: выбранные параметры применены. Для части изменений нужен перезапуск Windows.";
+                status.ForeColor = Color.FromArgb(105, 222, 157);
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Ошибка"); }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Не удалось применить настройки: " + ex.Message, "Boost", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         };
         f.Controls.Add(apply);
+        var restore = MakeButton("↶  ВОССТАНОВИТЬ ИСХОДНЫЕ НАСТРОЙКИ", 26, 470, 300, 42, panel2, text);
+        restore.Click += (_, _) =>
+        {
+            try
+            {
+                RestoreRegistryBackup();
+                status.Text = "ИСХОДНЫЕ ЗНАЧЕНИЯ WINDOWS ВОССТАНОВЛЕНЫ.";
+                status.ForeColor = Color.FromArgb(105, 222, 157);
+            }
+            catch (Exception ex) { MessageBox.Show("Ошибка восстановления: " + ex.Message); }
+        };
+        f.Controls.Add(restore);
+        var taskManager = MakeButton("ДИСПЕТЧЕР ЗАДАЧ", 340, 470, 190, 42, panel2, text);
+        taskManager.Click += (_, _) =>
+        {
+            try { Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true }); }
+            catch (Exception ex) { MessageBox.Show(ex.Message); }
+        };
+        f.Controls.Add(taskManager);
+        var graphics = MakeButton("ПАРАМЕТРЫ ГРАФИКИ WINDOWS", 26, 522, 620, 38, panel2, text);
+        graphics.Click += (_, _) => OpenUrl("ms-settings:display-graphics");
+        f.Controls.Add(graphics);
         f.Controls.Add(new Label
         {
-            Text = "Без разгона, отключения служб и сомнительных твиков. Прирост FPS не гарантируется.",
-            Location = new Point(25, 278), Size = new Size(530, 42), ForeColor = muted
+            Text = "Без разгона, отключения системных служб и сомнительных сетевых твиков. Реальный прирост FPS зависит от игры и драйверов.",
+            Location = new Point(28, 575), Size = new Size(620, 35), ForeColor = muted, Font = new Font("Segoe UI", 8)
         });
         f.ShowDialog(this);
     }
 
-    private void SetUserDword(string path, string name, int value)
+    private void RestoreRegistryBackup()
+    {
+        string backupPath = Path.Combine(root, "registry-backup.json");
+        if (!File.Exists(backupPath))
+        {
+            MessageBox.Show("Резервная копия пока не создана.", "Fortnite Booster PRO",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        var saved = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(backupPath))
+            ?? new Dictionary<string, JsonElement>();
+        foreach (var entry in saved)
+        {
+            string[] parts = entry.Key.Split('|', 2);
+            if (parts.Length != 2) continue;
+            string path = parts[0], name = parts[1];
+            var item = entry.Value;
+            bool existed = item.TryGetProperty("existed", out var existedValue) && existedValue.ValueKind == JsonValueKind.True;
+            using var key = Registry.CurrentUser.CreateSubKey(path);
+            if (!existed) { key.DeleteValue(name, false); continue; }
+            if (!item.TryGetProperty("oldValue", out var oldValue) || oldValue.ValueKind == JsonValueKind.Null)
+            {
+                key.DeleteValue(name, false);
+                continue;
+            }
+            object restored = oldValue.ValueKind switch
+            {
+                JsonValueKind.String => oldValue.GetString() ?? "",
+                JsonValueKind.True => 1,
+                JsonValueKind.False => 0,
+                JsonValueKind.Number when oldValue.TryGetInt32(out int i) => i,
+                JsonValueKind.Number when oldValue.TryGetInt64(out long l) => l,
+                _ => oldValue.ToString()
+            };
+            RegistryValueKind kind = item.TryGetProperty("oldKind", out var kindValue) &&
+                Enum.TryParse<RegistryValueKind>(kindValue.GetString(), out var parsedKind) ? parsedKind : RegistryValueKind.DWord;
+            key.SetValue(name, restored, kind);
+        }
+        File.Delete(backupPath);
+    }
+
+        private void SetUserDword(string path, string name, int value)
     {
         string backupPath = Path.Combine(root, "registry-backup.json");
         Dictionary<string, JsonElement> saved = new();
@@ -1360,7 +1578,8 @@ internal sealed class MainForm : Form
             using var oldKey = Registry.CurrentUser.OpenSubKey(path);
             bool existed = oldKey?.GetValueNames().Contains(name) == true;
             object? oldValue = existed ? oldKey!.GetValue(name) : null;
-            saved[keyName] = JsonSerializer.SerializeToElement(new { existed, oldValue });
+            string? oldKind = existed ? oldKey!.GetValueKind(name).ToString() : null;
+            saved[keyName] = JsonSerializer.SerializeToElement(new { existed, oldValue, oldKind });
             File.WriteAllText(backupPath, JsonSerializer.Serialize(saved, new JsonSerializerOptions { WriteIndented = true }));
         }
         using var key = Registry.CurrentUser.CreateSubKey(path);
