@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Net.Http;
 using System.Text.Json;
+using System.Management;
 using Microsoft.Win32;
 
 namespace FortniteBoosterPRO;
@@ -177,7 +178,8 @@ internal sealed class MainForm : Form
         sidebar.Controls.Add(sideTitle);
         AddNav(sidebar, "▦   Главная", 68, () => ShowLibrary());
         AddNav(sidebar, "◈   Fortnite", 116, () => ShowGameDetails());
-        AddNav(sidebar, "⚙   Настройки", 164, () => ShowSettings());
+        AddNav(sidebar, "▣   Мой ПК", 164, () => ShowPcSpecs());
+        AddNav(sidebar, "⚙   Настройки", 212, () => ShowSettings());
         var bottom = new Label
         {
             Text = "FORTNITE BOOSTER PRO\nBUILD 2.0  •  WINDOWS",
@@ -724,12 +726,76 @@ internal sealed class MainForm : Form
         return paths.FirstOrDefault(File.Exists) ?? "";
     }
     
+
+    private sealed record PcSpecs(string Cpu, string Gpu, string Ram, string Windows, string Architecture, string Motherboard);
+
+    private PcSpecs DetectPcSpecs()
+    {
+        string ReadWmi(string className, string property)
+        {
+            try
+            {
+                using var searcher = new ManagementObjectSearcher("SELECT " + property + " FROM " + className);
+                foreach (ManagementObject item in searcher.Get())
+                {
+                    var value = item[property]?.ToString();
+                    if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+                }
+            }
+            catch { }
+            return "Не удалось определить";
+        }
+
+        string cpu = ReadWmi("Win32_Processor", "Name");
+        string gpu = ReadWmi("Win32_VideoController", "Name");
+        string board = ReadWmi("Win32_BaseBoard", "Product");
+        string os = ReadWmi("Win32_OperatingSystem", "Caption");
+        string version = ReadWmi("Win32_OperatingSystem", "Version");
+        string ram;
+        try { ram = $"{Math.Round(new Microsoft.VisualBasic.Devices.ComputerInfo().TotalPhysicalMemory / 1024d / 1024d / 1024d)} ГБ"; }
+        catch { ram = "Не удалось определить"; }
+
+        return new PcSpecs(cpu, gpu, ram, os + " (" + version + ")",
+            Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit", board);
+    }
+
+    private void ShowPcSpecs()
+    {
+        using var f = CreateDialog("ХАРАКТЕРИСТИКИ ТВОЕГО ПК", 650, 540);
+        var specs = DetectPcSpecs();
+        f.Controls.Add(new Label
+        {
+            Text = "ДАННЫЕ СЧИТЫВАЮТСЯ АВТОМАТИЧЕСКИ ИЗ WINDOWS",
+            Location = new Point(25, 65), Size = new Size(570, 22),
+            ForeColor = blue, Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        });
+
+        void Row(string caption, string value, int y)
+        {
+            f.Controls.Add(new Label { Text = caption, Location = new Point(26, y), Size = new Size(150, 25), ForeColor = muted, Font = new Font("Segoe UI", 9, FontStyle.Bold) });
+            f.Controls.Add(new Label { Text = value, Location = new Point(185, y), Size = new Size(420, 42), ForeColor = text, Font = new Font("Segoe UI", 9), AutoEllipsis = true });
+            f.Controls.Add(new Panel { Location = new Point(25, y + 39), Size = new Size(575, 1), BackColor = panel2 });
+        }
+
+        Row("ПРОЦЕССОР", specs.Cpu, 105);
+        Row("ВИДЕОКАРТА", specs.Gpu, 165);
+        Row("ОПЕРАТИВНАЯ ПАМЯТЬ", specs.Ram, 225);
+        Row("WINDOWS", specs.Windows, 285);
+        Row("АРХИТЕКТУРА", specs.Architecture, 345);
+        Row("МАТЕРИНСКАЯ ПЛАТА", specs.Motherboard, 405);
+
+        var refresh = MakeButton("↻  ОБНОВИТЬ ДАННЫЕ", 25, 465, 575, 42, blue, Color.FromArgb(5, 20, 29));
+        refresh.Click += (_, _) => { f.Close(); ShowPcSpecs(); };
+        f.Controls.Add(refresh);
+        f.ShowDialog(this);
+    }
+
     private void ShowBoost()
     {
         using var f = CreateDialog("ПРОФИЛЬ СТАБИЛЬНОСТИ FPS", 590, 410);
         f.Controls.Add(new Label
         {
-            Text = "Ryzen 7 5700X  •  RTX 4060  •  16 GB RAM  •  Windows 11",
+            Text = "Профиль подбирается по автоматически определённым характеристикам ПК. Открой раздел «Мой ПК» для проверки.",
             Location = new Point(25, 68), Size = new Size(530, 25), ForeColor = muted
         });
         f.Controls.Add(new Label
