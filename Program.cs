@@ -78,8 +78,25 @@ internal sealed class PremiumButton : Button
         e.Graphics.FillPath(brush, path);
         using var border = new Pen(hovered ? Color.FromArgb(105, 255, 255, 255) : Color.FromArgb(28, 255, 255, 255), 1);
         e.Graphics.DrawPath(border, path);
-        TextRenderer.DrawText(e.Graphics, Text, Font, Rectangle.Inflate(rect, -8, -2), ForeColor,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
+        if (TextAlign == ContentAlignment.MiddleLeft || TextAlign == ContentAlignment.TopLeft || TextAlign == ContentAlignment.BottomLeft)
+            flags |= TextFormatFlags.Left;
+        else if (TextAlign == ContentAlignment.MiddleRight || TextAlign == ContentAlignment.TopRight || TextAlign == ContentAlignment.BottomRight)
+            flags |= TextFormatFlags.Right;
+        else
+            flags |= TextFormatFlags.HorizontalCenter;
+        if (TextAlign == ContentAlignment.TopLeft || TextAlign == ContentAlignment.TopCenter || TextAlign == ContentAlignment.TopRight)
+            flags |= TextFormatFlags.Top;
+        else if (TextAlign == ContentAlignment.BottomLeft || TextAlign == ContentAlignment.BottomCenter || TextAlign == ContentAlignment.BottomRight)
+            flags |= TextFormatFlags.Bottom;
+        e.Graphics.DrawString(Text, Font, new SolidBrush(ForeColor),
+            Rectangle.Inflate(rect, -8, -2), new StringFormat
+            {
+                Alignment = TextAlign == ContentAlignment.MiddleLeft ? StringAlignment.Near :
+                    TextAlign == ContentAlignment.MiddleRight ? StringAlignment.Far : StringAlignment.Center,
+                LineAlignment = StringAlignment.Center,
+                Trimming = StringTrimming.EllipsisCharacter
+            });
     }
 }
 
@@ -268,7 +285,7 @@ internal sealed class MainForm : Form
         profileButton.Click += (_, _) => ShowProfiles();
         top.Controls.Add(profileButton);
 
-        var settings = MakeButton("⚙", 0, 19, 42, 38, panel2, text);
+        var settings = MakeButton("···", 0, 19, 42, 38, panel2, text);
         settings.Font = new Font("Segoe UI Symbol", 15);
         settings.Click += (_, _) => ShowSettings();
         top.Controls.Add(settings);
@@ -293,10 +310,10 @@ internal sealed class MainForm : Form
             Text = "БИБЛИОТЕКА", Location = new Point(23, 27), Size = new Size(175, 22),
             ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
         });
-        AddNav(sidebar, "▦   Главная", 68, () => ShowLibrary());
-        AddNav(sidebar, "◈   Fortnite", 116, () => ShowGameDetails());
-        AddNav(sidebar, "▣   Мой ПК", 164, () => ShowPcSpecs());
-        AddNav(sidebar, "⚙   Настройки", 212, () => ShowSettings());
+        AddNav(sidebar, "Главная", 68, () => ShowLibrary());
+        AddNav(sidebar, "Fortnite", 116, () => ShowGameDetails());
+        AddNav(sidebar, "Мой ПК", 164, () => ShowPcSpecs());
+        AddNav(sidebar, "Настройки", 212, () => ShowSettings());
         sidebar.Controls.Add(new Label
         {
             Text = "FORTNITE BOOSTER PRO\nBUILD 2.1  •  WINDOWS",
