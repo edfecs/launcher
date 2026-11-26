@@ -71,6 +71,14 @@ internal sealed class MainForm : Form
         DoubleBuffered = true;
         LoadData();
         BuildShell();
+        try
+        {
+            string desktopShortcut = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                "Fortnite Booster PRO.lnk");
+            if (!File.Exists(desktopShortcut)) CreateDesktopShortcut();
+        }
+        catch { }
         ShowLibrary();
         Shown += async (_, _) => await RefreshArtworkAsync();
         refreshTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
