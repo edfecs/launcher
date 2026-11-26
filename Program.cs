@@ -296,7 +296,12 @@ internal sealed class MainForm : Form
 
     private void ResetContent()
     {
+        foreach (Control child in content.Controls.Cast<Control>().ToArray())
+            child.Dispose();
         content.Controls.Clear();
+        hero = null!;
+        gameHero = null;
+        gameGrid = null;
         content.AutoScrollPosition = Point.Empty;
     }
 
@@ -422,7 +427,7 @@ internal sealed class MainForm : Form
         {
             Location = new Point(0, 535), Size = new Size(Math.Max(680, content.ClientSize.Width - 58), 290),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-            AutoScroll = false, WrapContents = true, FlowDirection = FlowDirection.LeftToRight,
+            AutoScroll = true, WrapContents = true, FlowDirection = FlowDirection.LeftToRight,
             BackColor = Color.Transparent, Margin = Padding.Empty, Padding = Padding.Empty
         };
         content.Controls.Add(gameGrid);
@@ -447,11 +452,8 @@ internal sealed class MainForm : Form
                 SizeMode = PictureBoxSizeMode.Zoom, Cursor = Cursors.Hand
             };
             Image? image = null;
-            if (game.IsFortnite)
-            {
-                if (cover == null && File.Exists(CoverPath)) LoadCachedCover();
-                if (cover != null) image = new Bitmap(cover);
-            }
+            if (game.IsFortnite && cover != null)
+                image = new Bitmap(cover);
             else if (!string.IsNullOrWhiteSpace(game.ArtworkPath) && File.Exists(game.ArtworkPath))
             {
                 try { using var fs = new FileStream(game.ArtworkPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); using var source = Image.FromStream(fs); image = new Bitmap(source); } catch { }
