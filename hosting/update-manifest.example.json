@@ -1,0 +1,13 @@
+{
+  "version": "2.5.0",
+  "title": "Fortnite Booster PRO 2.5.0",
+  "publishedAt": "2026-11-26",
+  "notes": [
+    "Новая библиотека игр и SVG-навигация",
+    "Центр обновлений с историей изменений",
+    "Автоматическая загрузка и проверка SHA-256"
+  ],
+  "downloadUrl": "https://YOUR-DOMAIN.example/downloads/FortniteBoosterPRO.exe",
+  "sha256": "REPLACE_WITH_64_CHARACTER_SHA256_HASH",
+  "mandatory": false
+}

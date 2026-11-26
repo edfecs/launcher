@@ -4,6 +4,9 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Management;
 using Microsoft.Win32;
+using System.Reflection;
+using System.Security.Cryptography;
+using Svg;
 
 namespace FortniteBoosterPRO;
 
@@ -30,6 +33,24 @@ internal sealed class AppData
     public string ActiveProfileId { get; set; } = "";
     public List<UserProfile> Profiles { get; set; } = new();
     public List<GameEntry> Games { get; set; } = new();
+}
+
+internal sealed class UpdateSettings
+{
+    public string ManifestUrl { get; set; } = "";
+    public bool AutoCheck { get; set; } = true;
+    public bool AutoDownload { get; set; } = true;
+}
+
+internal sealed class AppUpdateManifest
+{
+    public string Version { get; set; } = "";
+    public string Title { get; set; } = "Обновление Fortnite Booster PRO";
+    public string PublishedAt { get; set; } = "";
+    public List<string> Notes { get; set; } = new();
+    public string DownloadUrl { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+    public bool Mandatory { get; set; }
 }
 
 internal static class Program
@@ -99,7 +120,14 @@ internal sealed class MainForm : Form
     private readonly Color blue = Color.FromArgb(139, 92, 246);
     private readonly string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FortniteBoosterPRO");
     private string DataPath => Path.Combine(root, "profiles.json");
+    private string UpdateSettingsPath => Path.Combine(root, "update-settings.json");
+    private string ReadyUpdatePath => Path.Combine(root, "FortniteBoosterPRO-update.exe");
     private string CoverPath => Path.Combine(root, "fortnite-live.jpg");
+    private UpdateSettings updateSettings = new();
+    private AppUpdateManifest? availableUpdate;
+    private string updateStatus = "Проверка обновлений ещё не выполнялась";
+    private bool updateCheckRunning;
+    private bool updateDownloadRunning;
     private readonly string newsUrl = "https://fortnite-api.com/v2/news?language=ru";
     private readonly string epicPage = "https://store.epicgames.com/p/fortnite";
     private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(18) };
@@ -136,6 +164,7 @@ internal sealed class MainForm : Form
         Font = new Font("Segoe UI", 9.5f);
         DoubleBuffered = true;
         LoadData();
+        LoadUpdateSettings();
         LoadCachedBanners();
         BuildShell();
         try
@@ -147,9 +176,17 @@ internal sealed class MainForm : Form
         }
         catch { }
         ShowLibrary();
-        Shown += async (_, _) => await RefreshArtworkAsync();
+        Shown += async (_, _) =>
+        {
+            await RefreshArtworkAsync();
+            if (updateSettings.AutoCheck) await CheckForUpdatesAsync(false);
+        };
         refreshTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
-        refreshTimer.Tick += async (_, _) => await RefreshArtworkAsync();
+        refreshTimer.Tick += async (_, _) =>
+        {
+            await RefreshArtworkAsync();
+            if (updateSettings.AutoCheck) await CheckForUpdatesAsync(false);
+        };
         refreshTimer.Start();
         fadeTimer = new System.Windows.Forms.Timer { Interval = 16 };
         fadeTimer.Tick += (_, _) =>
@@ -299,10 +336,11 @@ internal sealed class MainForm : Form
             Text = "БИБЛИОТЕКА", Location = new Point(23, 27), Size = new Size(175, 22),
             ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
         });
-        AddNav(sidebar, "Главная", 68, () => ShowLibrary());
-        AddNav(sidebar, "Fortnite", 116, () => ShowGameDetails());
-        AddNav(sidebar, "Мой ПК", 164, () => ShowPcSpecs());
-        AddNav(sidebar, "Настройки", 212, () => ShowSettings());
+        AddNav(sidebar, "home", "Библиотека", 68, () => ShowLibrary());
+        AddNav(sidebar, "game", "Fortnite", 116, () => ShowGameDetails());
+        AddNav(sidebar, "updates", "Обновления", 164, () => ShowUpdates());
+        AddNav(sidebar, "pc", "Мой ПК", 212, () => ShowPcSpecs());
+        AddNav(sidebar, "settings", "Настройки", 260, () => ShowSettings());
         sidebar.Controls.Add(new Label
         {
             Text = "FORTNITE BOOSTER PRO\nBUILD 2.1  •  WINDOWS",
@@ -331,13 +369,38 @@ internal sealed class MainForm : Form
         UpdateProfileButton();
     }
 
-    private void AddNav(Control parent, string title, int y, Action action)
+    private void AddNav(Control parent, string iconName, string title, int y, Action action)
     {
         var b = MakeButton(title, 12, y, 194, 40, panel, muted);
         b.TextAlign = ContentAlignment.MiddleLeft;
-        b.Padding = new Padding(12, 0, 0, 0);
+        b.Padding = new Padding(44, 0, 0, 0);
+        var icon = LoadSvgIcon(iconName, 19, 19);
+        if (icon != null)
+        {
+            var picture = new PictureBox
+            {
+                Image = icon, Size = new Size(19, 19), Location = new Point(14, 10),
+                SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent
+            };
+            b.Controls.Add(picture);
+            picture.Click += (_, _) => action();
+        }
         b.Click += (_, _) => action();
         parent.Controls.Add(b);
+    }
+
+    private Image? LoadSvgIcon(string name, int width, int height)
+    {
+        try
+        {
+            string resource = $"FortniteBoosterPRO.Assets.Icons.{name}.svg";
+            using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource);
+            if (stream == null) return null;
+            var document = SvgDocument.Open(stream);
+            using var rendered = document.Draw(width, height);
+            return new Bitmap(rendered);
+        }
+        catch { return null; }
     }
 
     private void UpdateProfileButton()
@@ -1329,7 +1392,7 @@ internal sealed class MainForm : Form
 
     private void ShowSettings()
     {
-        using var f = CreateDialog("НАСТРОЙКИ ПРОФИЛЯ", 660, 600);
+        using var f = CreateDialog("НАСТРОЙКИ ПРОФИЛЯ И ОБНОВЛЕНИЙ", 660, 770);
         var p = Current;
         AddSettingLabel(f, "НАЗВАНИЕ ПРОФИЛЯ", 24, 65);
         var profileName = AddTextBox(f, p.Name, 24, 90, 590);
@@ -1358,7 +1421,19 @@ internal sealed class MainForm : Form
         if (mode.SelectedIndex < 0) mode.SelectedIndex = 0;
         f.Controls.Add(mode);
 
-        var save = MakeButton("СОХРАНИТЬ НАСТРОЙКИ", 24, 455, 590, 48, blue, Color.FromArgb(5, 20, 29));
+        AddSettingLabel(f, "АДРЕС ФАЙЛА ОБНОВЛЕНИЙ (MANIFEST.JSON)", 24, 565);
+        var manifestUrl = AddTextBox(f, updateSettings.ManifestUrl, 24, 590, 590);
+        AddSettingLabel(f, "АВТОМАТИЧЕСКИЕ ОБНОВЛЕНИЯ", 24, 635);
+        var autoCheck = new CheckBox
+        {
+            Text = "Проверять и загружать новые версии автоматически",
+            Checked = updateSettings.AutoCheck && updateSettings.AutoDownload,
+            Location = new Point(24, 658), Size = new Size(590, 28),
+            ForeColor = text, BackColor = bg, Font = new Font("Segoe UI", 9)
+        };
+        f.Controls.Add(autoCheck);
+
+        var save = MakeButton("СОХРАНИТЬ НАСТРОЙКИ", 24, 700, 590, 42, blue, Color.FromArgb(5, 20, 29));
         save.Click += (_, _) =>
         {
             if (string.IsNullOrWhiteSpace(profileName.Text)) { MessageBox.Show("Укажи название профиля."); return; }
@@ -1367,13 +1442,17 @@ internal sealed class MainForm : Form
             p.GamePath = path.Text.Trim();
             p.LaunchOptions = args.Text.Trim();
             p.PerformanceMode = mode.SelectedItem?.ToString() ?? "Сбалансированный";
+            updateSettings.ManifestUrl = manifestUrl.Text.Trim();
+            updateSettings.AutoCheck = autoCheck.Checked;
+            updateSettings.AutoDownload = autoCheck.Checked;
+            SaveUpdateSettings();
             SaveData();
             UpdateProfileButton();
             f.Close();
             if (currentPage == "game") ShowGameDetails();
         };
         f.Controls.Add(save);
-        var shortcut = MakeButton("⌑  СОЗДАТЬ ЯРЛЫК НА РАБОЧЕМ СТОЛЕ", 24, 515, 590, 38, panel2, text);
+        var shortcut = MakeButton("СОЗДАТЬ ЯРЛЫК НА РАБОЧЕМ СТОЛЕ", 24, 515, 590, 38, panel2, text);
         shortcut.Click += (_, _) =>
         {
             try
@@ -1386,6 +1465,230 @@ internal sealed class MainForm : Form
         };
         f.Controls.Add(shortcut);
         f.ShowDialog(this);
+    }
+
+    private void LoadUpdateSettings()
+    {
+        try
+        {
+            if (File.Exists(UpdateSettingsPath))
+                updateSettings = JsonSerializer.Deserialize<UpdateSettings>(File.ReadAllText(UpdateSettingsPath)) ?? new();
+        }
+        catch { updateSettings = new(); }
+    }
+
+    private void SaveUpdateSettings() =>
+        File.WriteAllText(UpdateSettingsPath, JsonSerializer.Serialize(updateSettings, new JsonSerializerOptions { WriteIndented = true }));
+
+    private string CurrentAppVersion =>
+        Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.4.0";
+
+    private async Task CheckForUpdatesAsync(bool showResult)
+    {
+        if (updateCheckRunning) return;
+        if (string.IsNullOrWhiteSpace(updateSettings.ManifestUrl))
+        {
+            updateStatus = "Добавь ссылку на manifest.json в настройках";
+            if (showResult) ShowUpdates();
+            return;
+        }
+        if (!Uri.TryCreate(updateSettings.ManifestUrl, UriKind.Absolute, out var manifestUri) ||
+            manifestUri.Scheme != Uri.UriSchemeHttps)
+        {
+            updateStatus = "Нужна корректная HTTPS-ссылка на manifest.json";
+            if (showResult) { ShowUpdates(); MessageBox.Show(updateStatus, "Обновления", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            return;
+        }
+
+        updateCheckRunning = true;
+        updateStatus = "Проверяем наличие новой версии…";
+        if (currentPage == "updates") ShowUpdates();
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, manifestUri);
+            request.Headers.UserAgent.ParseAdd("FortniteBoosterPRO/" + CurrentAppVersion);
+            using var response = await http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            var manifest = JsonSerializer.Deserialize<AppUpdateManifest>(
+                await response.Content.ReadAsStringAsync(),
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (manifest == null || !Version.TryParse(manifest.Version, out var remoteVersion) ||
+                !Version.TryParse(CurrentAppVersion, out var localVersion))
+                throw new InvalidDataException("Файл manifest.json имеет неверный формат версии.");
+            availableUpdate = manifest;
+            if (remoteVersion <= localVersion)
+            {
+                updateStatus = "Установлена последняя версия · " + CurrentAppVersion;
+            }
+            else if (!IsHttpImageUrl(manifest.DownloadUrl) ||
+                     !manifest.DownloadUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                     manifest.Sha256.Length != 64 || !manifest.Sha256.All(Uri.IsHexDigit))
+            {
+                updateStatus = "Найдена версия " + manifest.Version + ", но ссылка или SHA-256 в манифесте некорректны";
+            }
+            else
+            {
+                updateStatus = "Доступна версия " + manifest.Version;
+                if (updateSettings.AutoDownload)
+                    await DownloadUpdateAsync(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            updateStatus = "Не удалось проверить обновления: " + ex.Message;
+        }
+        finally
+        {
+            updateCheckRunning = false;
+            if (showResult && !IsDisposed) ShowUpdates();
+        }
+    }
+
+    private async Task DownloadUpdateAsync(bool showResult)
+    {
+        if (updateDownloadRunning || availableUpdate == null) return;
+        updateDownloadRunning = true;
+        updateStatus = "Загружаем обновление " + availableUpdate.Version + "…";
+        if (currentPage == "updates") ShowUpdates();
+        try
+        {
+            using var response = await http.GetAsync(availableUpdate.DownloadUrl, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            await using var source = await response.Content.ReadAsStreamAsync();
+            await using var destination = new FileStream(ReadyUpdatePath, FileMode.Create, FileAccess.Write, FileShare.None);
+            using var sha = SHA256.Create();
+            var buffer = new byte[81920];
+            int read;
+            using var hashStream = new MemoryStream();
+            while ((read = await source.ReadAsync(buffer)) > 0)
+            {
+                await destination.WriteAsync(buffer.AsMemory(0, read));
+                hashStream.Write(buffer, 0, read);
+            }
+            await destination.FlushAsync();
+            destination.Close();
+            string actualHash = Convert.ToHexString(SHA256.HashData(hashStream.ToArray()));
+            if (!actualHash.Equals(availableUpdate.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(ReadyUpdatePath);
+                throw new InvalidDataException("Контрольная сумма SHA-256 не совпала. Файл обновления удалён.");
+            }
+            updateStatus = "Обновление " + availableUpdate.Version + " загружено и проверено";
+        }
+        catch (Exception ex)
+        {
+            updateStatus = "Ошибка загрузки обновления: " + ex.Message;
+        }
+        finally
+        {
+            updateDownloadRunning = false;
+            if (showResult && !IsDisposed) ShowUpdates();
+        }
+    }
+
+    private void InstallDownloadedUpdate()
+    {
+        if (!File.Exists(ReadyUpdatePath))
+        {
+            MessageBox.Show("Сначала загрузи обновление.", "Обновления", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        string target = Application.ExecutablePath;
+        string source = ReadyUpdatePath;
+        string script = "$ErrorActionPreference='Stop'; Wait-Process -Id " + Environment.ProcessId +
+            "; $src='" + source.Replace("'", "''") + "'; $dst='" + target.Replace("'", "''") +
+            "'; $tmp=$dst+'.new'; Copy-Item -LiteralPath $src -Destination $tmp -Force; Move-Item -LiteralPath $tmp -Destination $dst -Force; Start-Process -FilePath $dst";
+        string encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script));
+        Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand " + encoded)
+        {
+            UseShellExecute = false, CreateNoWindow = true
+        });
+        Close();
+    }
+
+    private void ShowUpdates()
+    {
+        currentPage = "updates";
+        ResetContent();
+        content.Controls.Add(new Label
+        {
+            Text = "ЦЕНТР ОБНОВЛЕНИЙ", Location = new Point(2, 0), Size = new Size(560, 32),
+            ForeColor = text, Font = new Font("Segoe UI", 21, FontStyle.Bold)
+        });
+        content.Controls.Add(new Label
+        {
+            Text = "Новости Fortnite и новые версии Booster — в одном месте",
+            Location = new Point(4, 39), Size = new Size(700, 24), ForeColor = muted, Font = new Font("Segoe UI", 9)
+        });
+
+        var appCard = new Panel { Location = new Point(0, 82), Size = new Size(Math.Max(650, content.ClientSize.Width - 58), 238), BackColor = panel };
+        content.Controls.Add(appCard);
+        appCard.Controls.Add(new Label
+        {
+            Text = "FORTNITE BOOSTER PRO", Location = new Point(22, 18), Size = new Size(400, 24),
+            ForeColor = blue, Font = new Font("Segoe UI", 9, FontStyle.Bold)
+        });
+        appCard.Controls.Add(new Label
+        {
+            Text = "УСТАНОВЛЕННАЯ ВЕРСИЯ  " + CurrentAppVersion,
+            Location = new Point(22, 55), Size = new Size(450, 24), ForeColor = text, Font = new Font("Segoe UI", 13, FontStyle.Bold)
+        });
+        var status = new Label
+        {
+            Text = updateStatus, Location = new Point(22, 91), Size = new Size(640, 38),
+            ForeColor = muted, Font = new Font("Segoe UI", 9), AutoEllipsis = true
+        };
+        appCard.Controls.Add(status);
+        var check = MakeButton("ПРОВЕРИТЬ ОБНОВЛЕНИЯ", 22, 151, 220, 42, panel2, text);
+        check.Click += async (_, _) => await CheckForUpdatesAsync(true);
+        appCard.Controls.Add(check);
+        var download = MakeButton("ЗАГРУЗИТЬ ВЕРСИЮ", 254, 151, 190, 42, blue, Color.White);
+        download.Click += async (_, _) => await DownloadUpdateAsync(true);
+        appCard.Controls.Add(download);
+        var install = MakeButton("УСТАНОВИТЬ И ПЕРЕЗАПУСТИТЬ", 456, 151, 245, 42, Color.FromArgb(235, 235, 245), Color.FromArgb(15, 15, 22));
+        install.Click += (_, _) => InstallDownloadedUpdate();
+        appCard.Controls.Add(install);
+
+        int notesY = 346;
+        content.Controls.Add(new Label
+        {
+            Text = "ЧТО НОВОГО В ЭТОЙ ВЕРСИИ", Location = new Point(2, notesY), Size = new Size(520, 26),
+            ForeColor = text, Font = new Font("Segoe UI", 15, FontStyle.Bold)
+        });
+        var notes = availableUpdate?.Notes ?? new List<string> {
+            "Отдельная библиотека игр с карточками и обложками",
+            "Плавная смена баннеров и кэширование изображений",
+            "Проверка обновлений Booster через твой сервер"
+        };
+        int y = notesY + 42;
+        foreach (var note in notes.Take(8))
+        {
+            var line = new Panel { Location = new Point(0, y), Size = new Size(Math.Max(620, content.ClientSize.Width - 58), 48), BackColor = panel };
+            line.Controls.Add(new Label { Text = "—", Location = new Point(16, 12), Size = new Size(20, 22), ForeColor = blue, Font = new Font("Segoe UI", 12, FontStyle.Bold) });
+            line.Controls.Add(new Label { Text = note, Location = new Point(42, 12), Size = new Size(line.Width - 58, 24), ForeColor = text, Font = new Font("Segoe UI", 9), AutoEllipsis = true });
+            content.Controls.Add(line);
+            y += 56;
+        }
+
+        content.Controls.Add(new Label
+        {
+            Text = "НОВОСТИ FORTNITE", Location = new Point(2, y + 12), Size = new Size(400, 28),
+            ForeColor = text, Font = new Font("Segoe UI", 15, FontStyle.Bold)
+        });
+        var news = new FlowLayoutPanel
+        {
+            Location = new Point(0, y + 50), Size = new Size(Math.Max(650, content.ClientSize.Width - 58), 240),
+            BackColor = Color.Transparent, AutoScroll = true, WrapContents = false
+        };
+        content.Controls.Add(news);
+        RenderFortniteNews(news);
+        var refreshNews = MakeButton("ОБНОВИТЬ НОВОСТИ", 0, y + 300, 200, 40, panel2, text);
+        refreshNews.Click += async (_, _) => await RefreshArtworkAsync();
+        content.Controls.Add(refreshNews);
+        var configure = MakeButton("НАСТРОИТЬ СЕРВЕР ОБНОВЛЕНИЙ", 214, y + 300, 270, 40, panel2, text);
+        configure.Click += (_, _) => ShowSettings();
+        content.Controls.Add(configure);
     }
 
     private void CreateDesktopShortcut()
