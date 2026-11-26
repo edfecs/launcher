@@ -1,9 +1,26 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Net.Http;
+using System.Text.Json;
 using Microsoft.Win32;
 
 namespace FortniteBoosterPRO;
+
+internal sealed class UserProfile
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "Игрок";
+    public string EpicNickname { get; set; } = "";
+    public string GamePath { get; set; } = "";
+    public string LaunchOptions { get; set; } = "";
+    public string PerformanceMode { get; set; } = "Сбалансированный";
+}
+
+internal sealed class AppData
+{
+    public string ActiveProfileId { get; set; } = "";
+    public List<UserProfile> Profiles { get; set; } = new();
+}
 
 internal static class Program
 {
@@ -17,405 +34,722 @@ internal static class Program
 
 internal sealed class MainForm : Form
 {
-    private readonly Color background = Color.FromArgb(15, 16, 20);
-    private readonly Color surface = Color.FromArgb(27, 29, 35);
-    private readonly Color foreground = Color.FromArgb(245, 246, 249);
-    private readonly Color secondary = Color.FromArgb(173, 178, 190);
-    private readonly Color cyan = Color.FromArgb(64, 194, 224);
-    private readonly string appFolder = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FortniteBoosterPRO");
-    private readonly string imageUrl = "https://cdn1.epicgames.com/offer/fn/FNBR_40-40_C7S2_Venison_EGS_Launcher_Blade_1200x1600_1200x1600-858fcbb83fb34b6ea6cb558a07fa4b7c";
-    private readonly string gamePage = "https://store.epicgames.com/p/fortnite";
-    private Image? coverImage;
+    private readonly Color bg = Color.FromArgb(13, 15, 20);
+    private readonly Color panel = Color.FromArgb(22, 25, 32);
+    private readonly Color panel2 = Color.FromArgb(30, 34, 43);
+    private readonly Color text = Color.FromArgb(242, 245, 250);
+    private readonly Color muted = Color.FromArgb(145, 154, 169);
+    private readonly Color blue = Color.FromArgb(39, 183, 235);
+    private readonly string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FortniteBoosterPRO");
+    private string DataPath => Path.Combine(root, "profiles.json");
+    private string CoverPath => Path.Combine(root, "fortnite-live.jpg");
+    private readonly string newsUrl = "https://fortnite-api.com/v2/news?language=ru";
+    private readonly string epicPage = "https://store.epicgames.com/p/fortnite";
+    private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(18) };
+    private AppData data = new();
+    private UserProfile Current => data.Profiles.First(p => p.Id == data.ActiveProfileId);
+    private Image? cover;
+    private Panel content = null!;
     private Panel hero = null!;
-    private PictureBox tileImage = null!;
-    private Label status = null!;
-    private string gameExe = "";
+    private PictureBox gameTile = null!;
+    private Label profileButton = null!;
+    private Label coverStatus = null!;
+    private System.Windows.Forms.Timer refreshTimer = null!;
+    private string currentPage = "library";
 
     public MainForm()
     {
-        Directory.CreateDirectory(appFolder);
+        Directory.CreateDirectory(root);
         Text = "Fortnite Booster PRO";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(1440, 900);
+        ClientSize = new Size(1460, 920);
         MinimumSize = new Size(1120, 760);
-        BackColor = background;
-        ForeColor = foreground;
-        Font = new Font("Segoe UI", 10);
+        BackColor = bg;
+        ForeColor = text;
+        Font = new Font("Segoe UI", 9.5f);
         DoubleBuffered = true;
-        gameExe = FindFortniteExe();
-        BuildInterface();
-        Shown += async (_, _) => await LoadArtworkAsync();
+        LoadData();
+        BuildShell();
+        ShowLibrary();
+        Shown += async (_, _) => await RefreshArtworkAsync();
+        refreshTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
+        refreshTimer.Tick += async (_, _) => await RefreshArtworkAsync();
+        refreshTimer.Start();
     }
 
-    private void BuildInterface()
+    private void LoadData()
     {
-        var header = new Panel { Dock = DockStyle.Top, Height = 76, BackColor = background, Padding = new Padding(30, 0, 30, 0) };
-        Controls.Add(header);
-
-        var brand = new Label
+        try
         {
-            Text = "FORTNITE BOOSTER",
-            Location = new Point(28, 20),
-            Size = new Size(260, 38),
-            Font = new Font("Segoe UI", 17, FontStyle.Bold),
-            ForeColor = foreground
-        };
-        header.Controls.Add(brand);
-
-        var nav = new Label
+            if (File.Exists(DataPath))
+                data = JsonSerializer.Deserialize<AppData>(File.ReadAllText(DataPath)) ?? new();
+        }
+        catch { data = new(); }
+        if (data.Profiles.Count == 0)
         {
-            Text = "ИГРЫ",
-            Location = new Point(330, 26),
-            Size = new Size(70, 28),
-            Font = new Font("Segoe UI", 10, FontStyle.Bold),
-            ForeColor = foreground,
-            TextAlign = ContentAlignment.MiddleCenter
+            var p = new UserProfile { Name = "Основной профиль", GamePath = FindFortniteExe() };
+            data.Profiles.Add(p);
+            data.ActiveProfileId = p.Id;
+            SaveData();
+        }
+        if (!data.Profiles.Any(p => p.Id == data.ActiveProfileId))
+            data.ActiveProfileId = data.Profiles[0].Id;
+    }
+
+    private void SaveData() =>
+        File.WriteAllText(DataPath, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
+
+    private void BuildShell()
+    {
+        var top = new Panel { Dock = DockStyle.Top, Height = 76, BackColor = bg };
+        Controls.Add(top);
+        var logo = new Label
+        {
+            Text = "FORTNITE  /  BOOSTER",
+            Location = new Point(28, 21),
+            Size = new Size(285, 34),
+            Font = new Font("Segoe UI", 16, FontStyle.Bold),
+            ForeColor = text
         };
-        header.Controls.Add(nav);
-        header.Controls.Add(new Panel { Location = new Point(340, 58), Size = new Size(48, 3), BackColor = cyan });
+        top.Controls.Add(logo);
 
         var search = new TextBox
         {
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(Width - 520, 20),
-            Size = new Size(245, 34),
-            BackColor = surface,
-            ForeColor = foreground,
+            Location = new Point(Width - 560, 21),
+            Size = new Size(230, 34),
+            BackColor = panel,
+            ForeColor = text,
             BorderStyle = BorderStyle.FixedSingle,
-            PlaceholderText = "⌕  Поиск в библиотеке",
-            Font = new Font("Segoe UI", 9)
+            PlaceholderText = "Поиск в библиотеке"
         };
         search.TextChanged += (_, _) =>
         {
-            bool match = "fortnite".Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase) || search.Text.Trim().Length == 0;
-            hero.Visible = match;
-            tileImage.Visible = match;
-            status.Visible = match;
+            if (currentPage == "library" && hero != null)
+            {
+                bool show = string.IsNullOrWhiteSpace(search.Text) || "fortnite".Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase);
+                hero.Visible = show;
+                gameTile.Visible = show;
+            }
         };
-        header.Controls.Add(search);
+        top.Controls.Add(search);
 
-        var add = MakeButton("УКАЗАТЬ ИГРУ", 0, 19, 132, 38, surface, foreground);
-        add.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        add.Location = new Point(Width - 250, 19);
-        add.Click += (_, _) => ChooseGameExe();
-        header.Controls.Add(add);
-
-        var boost = MakeButton("BOOST", 0, 19, 94, 38, cyan, Color.FromArgb(8, 19, 24));
-        boost.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        boost.Location = new Point(Width - 105, 19);
-        boost.Click += (_, _) => ShowBoost();
-        header.Controls.Add(boost);
-
-        var separator = new Panel { Dock = DockStyle.Top, Height = 1, BackColor = Color.FromArgb(42, 44, 51) };
-        Controls.Add(separator);
-
-        var body = new Panel { Dock = DockStyle.Fill, BackColor = background, Padding = new Padding(30, 24, 30, 24), AutoScroll = true };
-        Controls.Add(body);
-        body.BringToFront();
-        header.BringToFront();
-
-        body.Controls.Add(new Label
+        profileButton = new Label
         {
-            Text = "ТВОЯ ИГРОВАЯ БИБЛИОТЕКА",
-            Location = new Point(2, 0),
-            Size = new Size(500, 24),
-            Font = new Font("Segoe UI", 9, FontStyle.Bold),
-            ForeColor = secondary
-        });
-
-        hero = new Panel
-        {
-            Location = new Point(0, 36),
-            Size = new Size(body.ClientSize.Width - 60, 440),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-            BackColor = Color.FromArgb(35, 55, 75)
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Location = new Point(Width - 310, 20),
+            Size = new Size(170, 36),
+            BackColor = panel2,
+            ForeColor = text,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Cursor = Cursors.Hand,
+            Font = new Font("Segoe UI", 9, FontStyle.Bold)
         };
-        hero.Paint += PaintHero;
-        body.Controls.Add(hero);
+        profileButton.Click += (_, _) => ShowProfiles();
+        top.Controls.Add(profileButton);
 
-        var eyebrow = new Label
+        var settings = MakeButton("⚙", 0, 19, 42, 38, panel2, text);
+        settings.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        settings.Location = new Point(Width - 91, 19);
+        settings.Font = new Font("Segoe UI Symbol", 15);
+        settings.Click += (_, _) => ShowSettings();
+        top.Controls.Add(settings);
+
+        var divider = new Panel { Dock = DockStyle.Top, Height = 1, BackColor = Color.FromArgb(42, 47, 58) };
+        Controls.Add(divider);
+
+        var sidebar = new Panel { Dock = DockStyle.Left, Width = 220, BackColor = panel };
+        Controls.Add(sidebar);
+        var sideTitle = new Label
         {
-            Text = "EPIC GAMES  •  FREE TO PLAY",
-            Location = new Point(42, 54),
-            Size = new Size(420, 24),
-            Font = new Font("Segoe UI", 9, FontStyle.Bold),
-            ForeColor = Color.FromArgb(175, 231, 246),
-            BackColor = Color.Transparent
-        };
-        hero.Controls.Add(eyebrow);
-
-        var gameTitle = new Label
-        {
-            Text = "FORTNITE",
-            Location = new Point(38, 104),
-            Size = new Size(570, 76),
-            Font = new Font("Segoe UI", 43, FontStyle.Bold),
-            ForeColor = Color.White,
-            BackColor = Color.Transparent
-        };
-        hero.Controls.Add(gameTitle);
-
-        var description = new Label
-        {
-            Text = "Высаживайся на остров, собирай снаряжение и сражайся за победу.\\nТвой игровой центр и безопасная оптимизация — в одном месте.",
-            Location = new Point(43, 194),
-            Size = new Size(530, 58),
-            Font = new Font("Segoe UI", 11),
-            ForeColor = Color.FromArgb(235, 239, 246),
-            BackColor = Color.Transparent
-        };
-        hero.Controls.Add(description);
-
-        var play = MakeButton("▶   ИГРАТЬ", 42, 292, 170, 50, Color.White, Color.FromArgb(20, 25, 32));
-        play.Font = new Font("Segoe UI", 10, FontStyle.Bold);
-        play.Click += (_, _) => LaunchFortnite();
-        hero.Controls.Add(play);
-
-        var store = MakeButton("СТРАНИЦА ИГРЫ", 225, 292, 170, 50, Color.FromArgb(95, 45, 48, 58), Color.White);
-        store.Click += (_, _) => OpenUrl(gamePage);
-        hero.Controls.Add(store);
-
-        var libraryTitle = new Label
-        {
-            Text = "В БИБЛИОТЕКЕ",
-            Location = new Point(2, 500),
-            Size = new Size(400, 28),
-            Font = new Font("Segoe UI", 15, FontStyle.Bold),
-            ForeColor = foreground
-        };
-        body.Controls.Add(libraryTitle);
-
-        var librarySub = new Label
-        {
-            Text = "1 ИГРА  •  ТОЛЬКО FORTNITE",
-            Location = new Point(3, 532),
-            Size = new Size(400, 20),
-            Font = new Font("Segoe UI", 8, FontStyle.Bold),
-            ForeColor = secondary
-        };
-        body.Controls.Add(librarySub);
-
-        var tile = new Panel
-        {
-            Location = new Point(0, 565),
-            Size = new Size(210, 245),
-            BackColor = surface,
-            Cursor = Cursors.Hand
-        };
-        body.Controls.Add(tile);
-
-        tileImage = new PictureBox
-        {
-            Location = new Point(0, 0),
-            Size = new Size(210, 195),
-            SizeMode = PictureBoxSizeMode.Zoom,
-            BackColor = Color.FromArgb(43, 74, 104),
-            Cursor = Cursors.Hand
-        };
-        tile.Controls.Add(tileImage);
-
-        tile.Controls.Add(new Label
-        {
-            Text = "Fortnite",
-            Location = new Point(12, 201),
-            Size = new Size(185, 23),
-            Font = new Font("Segoe UI", 10, FontStyle.Bold),
-            ForeColor = foreground
-        });
-        status = new Label
-        {
-            Text = gameExe.Length > 0 ? "УСТАНОВЛЕНА" : "НАСТРОИТЬ РАСПОЛОЖЕНИЕ",
-            Location = new Point(12, 224),
-            Size = new Size(190, 17),
-            Font = new Font("Segoe UI", 7, FontStyle.Bold),
-            ForeColor = gameExe.Length > 0 ? Color.FromArgb(116, 220, 160) : secondary
-        };
-        tile.Controls.Add(status);
-        tile.Click += (_, _) => LaunchFortnite();
-        tileImage.Click += (_, _) => LaunchFortnite();
-
-        var footer = new Label
-        {
-            Text = "FORTNITE BOOSTER PRO     •     WINDOWS 11",
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
-            Location = new Point(4, 830),
-            Size = new Size(450, 20),
-            ForeColor = Color.FromArgb(105, 110, 122),
+            Text = "БИБЛИОТЕКА",
+            Location = new Point(23, 27),
+            Size = new Size(175, 22),
+            ForeColor = muted,
             Font = new Font("Segoe UI", 8, FontStyle.Bold)
         };
-        body.Controls.Add(footer);
+        sidebar.Controls.Add(sideTitle);
+        AddNav(sidebar, "▦   Главная", 68, () => ShowLibrary());
+        AddNav(sidebar, "◈   Fortnite", 116, () => ShowGameDetails());
+        AddNav(sidebar, "⚙   Настройки", 164, () => ShowSettings());
+        var bottom = new Label
+        {
+            Text = "FORTNITE BOOSTER PRO\nBUILD 2.0  •  WINDOWS",
+            Location = new Point(22, 760),
+            Size = new Size(180, 44),
+            ForeColor = Color.FromArgb(91, 101, 118),
+            Font = new Font("Segoe UI", 7, FontStyle.Bold),
+            Anchor = AnchorStyles.Left | AnchorStyles.Bottom
+        };
+        sidebar.Controls.Add(bottom);
+
+        content = new Panel { Dock = DockStyle.Fill, BackColor = bg, AutoScroll = true, Padding = new Padding(28, 24, 28, 25) };
+        Controls.Add(content);
+        content.BringToFront();
+        sidebar.BringToFront();
+        top.BringToFront();
+        UpdateProfileButton();
     }
 
-    private Button MakeButton(string caption, int x, int y, int width, int height, Color back, Color fore)
+    private void AddNav(Control parent, string title, int y, Action action)
     {
-        var button = new Button
+        var b = MakeButton(title, 12, y, 194, 40, panel, muted);
+        b.TextAlign = ContentAlignment.MiddleLeft;
+        b.Padding = new Padding(12, 0, 0, 0);
+        b.Click += (_, _) => action();
+        parent.Controls.Add(b);
+    }
+
+    private void UpdateProfileButton()
+    {
+        if (profileButton != null)
+            profileButton.Text = "●   " + Current.Name + "   ▾";
+    }
+
+    private Button MakeButton(string caption, int x, int y, int w, int h, Color back, Color fore)
+    {
+        var b = new Button
         {
             Text = caption,
             Location = new Point(x, y),
-            Size = new Size(width, height),
+            Size = new Size(w, h),
             BackColor = back,
             ForeColor = fore,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 9, FontStyle.Bold),
             Cursor = Cursors.Hand
         };
-        button.FlatAppearance.BorderSize = 0;
-        button.FlatAppearance.MouseOverBackColor = ControlPaint.Light(back, .08f);
-        return button;
+        b.FlatAppearance.BorderSize = 0;
+        b.FlatAppearance.MouseOverBackColor = ControlPaint.Light(back, .10f);
+        return b;
     }
 
-    private async Task LoadArtworkAsync()
+    private void ResetContent()
     {
-        string cache = Path.Combine(appFolder, "fortnite-cover.jpg");
+        content.Controls.Clear();
+        content.AutoScrollPosition = Point.Empty;
+    }
+
+    private void ShowLibrary()
+    {
+        currentPage = "library";
+        ResetContent();
+        content.Controls.Add(new Label
+        {
+            Text = "ТВОЯ БИБЛИОТЕКА",
+            Location = new Point(4, 0),
+            Size = new Size(500, 25),
+            ForeColor = muted,
+            Font = new Font("Segoe UI", 9, FontStyle.Bold)
+        });
+
+        hero = new Panel
+        {
+            Location = new Point(0, 40),
+            Size = new Size(Math.Max(700, content.ClientSize.Width - 58), 410),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            BackColor = Color.FromArgb(30, 64, 100),
+            Cursor = Cursors.Hand
+        };
+        hero.Paint += PaintHero;
+        hero.Click += (_, _) => ShowGameDetails();
+        content.Controls.Add(hero);
+
+        var kicker = new Label
+        {
+            Text = "EPIC GAMES  /  FREE TO PLAY",
+            Location = new Point(34, 35),
+            Size = new Size(350, 22),
+            ForeColor = Color.FromArgb(183, 230, 250),
+            BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        };
+        hero.Controls.Add(kicker);
+        hero.Controls.Add(new Label
+        {
+            Text = "FORTNITE",
+            Location = new Point(30, 83),
+            Size = new Size(520, 72),
+            ForeColor = Color.White,
+            BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 43, FontStyle.Bold)
+        });
+        hero.Controls.Add(new Label
+        {
+            Text = "Новый сезон. Новые возможности. Твоя следующая победа.",
+            Location = new Point(36, 165),
+            Size = new Size(550, 30),
+            ForeColor = Color.White,
+            BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 11)
+        });
+        var details = MakeButton("ОТКРЫТЬ СТРАНИЦУ  →", 35, 240, 205, 48, Color.White, Color.FromArgb(17, 25, 37));
+        details.Click += (_, _) => ShowGameDetails();
+        hero.Controls.Add(details);
+        var play = MakeButton("▶  ИГРАТЬ", 252, 240, 145, 48, blue, Color.FromArgb(5, 20, 29));
+        play.Click += (_, _) => LaunchFortnite();
+        hero.Controls.Add(play);
+
+        content.Controls.Add(new Label
+        {
+            Text = "МОИ ИГРЫ",
+            Location = new Point(3, 475),
+            Size = new Size(300, 28),
+            ForeColor = text,
+            Font = new Font("Segoe UI", 16, FontStyle.Bold)
+        });
+        content.Controls.Add(new Label
+        {
+            Text = "1 ИГРА  •  ОБЛОЖКА ОБНОВЛЯЕТСЯ АВТОМАТИЧЕСКИ",
+            Location = new Point(4, 508),
+            Size = new Size(480, 18),
+            ForeColor = muted,
+            Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        });
+
+        gameTile = new PictureBox
+        {
+            Location = new Point(0, 540),
+            Size = new Size(220, 255),
+            BackColor = panel,
+            SizeMode = PictureBoxSizeMode.Zoom,
+            Cursor = Cursors.Hand
+        };
+        gameTile.Click += (_, _) => ShowGameDetails();
+        content.Controls.Add(gameTile);
+        if (cover != null) gameTile.Image = new Bitmap(cover);
+        var tileName = new Label
+        {
+            Text = "FORTNITE",
+            Location = new Point(12, 765),
+            Size = new Size(195, 23),
+            ForeColor = text,
+            BackColor = panel,
+            Font = new Font("Segoe UI", 10, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        tileName.Click += (_, _) => ShowGameDetails();
+        content.Controls.Add(tileName);
+
+        coverStatus = new Label
+        {
+            Text = "АКТУАЛЬНАЯ ОБЛОЖКА",
+            Location = new Point(12, 789),
+            Size = new Size(200, 18),
+            ForeColor = muted,
+            BackColor = panel,
+            Font = new Font("Segoe UI", 7, FontStyle.Bold)
+        };
+        content.Controls.Add(coverStatus);
+        if (File.Exists(CoverPath) && cover == null) LoadCachedCover();
+    }
+
+    private void ShowGameDetails()
+    {
+        currentPage = "game";
+        ResetContent();
+        content.Controls.Add(new Label
+        {
+            Text = "БИБЛИОТЕКА  /  FORTNITE",
+            Location = new Point(2, 0),
+            Size = new Size(500, 22),
+            ForeColor = muted,
+            Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        });
+
+        var art = new Panel
+        {
+            Location = new Point(0, 36),
+            Size = new Size(Math.Max(700, content.ClientSize.Width - 58), 330),
+            BackColor = Color.FromArgb(30, 65, 95),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+        };
+        art.Paint += PaintHero;
+        content.Controls.Add(art);
+        art.Controls.Add(new Label
+        {
+            Text = "FORTNITE",
+            Location = new Point(35, 80),
+            Size = new Size(500, 72),
+            ForeColor = Color.White,
+            BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 42, FontStyle.Bold)
+        });
+        art.Controls.Add(new Label
+        {
+            Text = "Battle Royale  •  Windows  •  Free to Play",
+            Location = new Point(42, 160),
+            Size = new Size(500, 28),
+            ForeColor = Color.White,
+            BackColor = Color.Transparent
+        });
+
+        var installed = File.Exists(Current.GamePath);
+        var state = new Label
+        {
+            Text = installed ? "●  ИГРА ГОТОВА К ЗАПУСКУ" : "○  УКAЖИ ПУТЬ К ИГРЕ ИЛИ УСТАНОВИ ЕЁ",
+            Location = new Point(4, 390),
+            Size = new Size(520, 24),
+            ForeColor = installed ? Color.FromArgb(105, 222, 157) : muted,
+            Font = new Font("Segoe UI", 9, FontStyle.Bold)
+        };
+        content.Controls.Add(state);
+
+        var install = MakeButton("↓   УСТАНОВИТЬ", 0, 430, 180, 48, blue, Color.FromArgb(5, 20, 29));
+        install.Click += (_, _) => OpenUrl(epicPage);
+        content.Controls.Add(install);
+
+        var play = MakeButton("▶   ИГРАТЬ", 194, 430, 145, 48, panel2, text);
+        play.Click += (_, _) => LaunchFortnite();
+        content.Controls.Add(play);
+
+        var configure = MakeButton("⚙   НАСТРОИТЬ", 353, 430, 165, 48, panel2, text);
+        configure.Click += (_, _) => ShowSettings();
+        content.Controls.Add(configure);
+
+        content.Controls.Add(new Label
+        {
+            Text = "ОБ ИГРЕ",
+            Location = new Point(4, 510),
+            Size = new Size(300, 25),
+            ForeColor = text,
+            Font = new Font("Segoe UI", 14, FontStyle.Bold)
+        });
+        content.Controls.Add(new Label
+        {
+            Text = "Fortnite — бесплатная игра от Epic Games. Установка и обновления выполняются официальным Epic Games Launcher.\\nBooster хранит твой путь к игре и настройки отдельно для каждого профиля.",
+            Location = new Point(5, 546),
+            Size = new Size(750, 58),
+            ForeColor = muted,
+            Font = new Font("Segoe UI", 9.5f)
+        });
+        var news = MakeButton("ОТКРЫТЬ НОВОСТИ FORTNITE  ↗", 4, 630, 245, 40, panel2, text);
+        news.Click += (_, _) => OpenUrl("https://www.fortnite.com/news");
+        content.Controls.Add(news);
+    }
+
+    private async Task RefreshArtworkAsync()
+    {
         try
         {
-            if (!File.Exists(cache) || new FileInfo(cache).Length < 20_000)
+            using var request = new HttpRequestMessage(HttpMethod.Get, newsUrl);
+            request.Headers.UserAgent.ParseAdd("FortniteBoosterPRO/2.0");
+            using var response = await http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            if (!doc.RootElement.TryGetProperty("data", out var dataNode) ||
+                !dataNode.TryGetProperty("br", out var br) ||
+                !br.TryGetProperty("motds", out var motds) ||
+                motds.ValueKind != JsonValueKind.Array) return;
+
+            string? imageUrl = null;
+            foreach (var item in motds.EnumerateArray())
             {
-                using var http = new HttpClient();
-                http.Timeout = TimeSpan.FromSeconds(20);
-                http.DefaultRequestHeaders.UserAgent.ParseAdd("FortniteBoosterPRO/1.2");
-                byte[] bytes = await http.GetByteArrayAsync(imageUrl);
-                await File.WriteAllBytesAsync(cache, bytes);
+                foreach (var key in new[] { "image", "tileImage" })
+                {
+                    if (item.TryGetProperty(key, out var image) && image.ValueKind == JsonValueKind.String)
+                    {
+                        var candidate = image.GetString();
+                        if (!string.IsNullOrWhiteSpace(candidate) && candidate.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        { imageUrl = candidate; break; }
+                    }
+                }
+                if (imageUrl != null) break;
             }
-            using var stream = new MemoryStream(await File.ReadAllBytesAsync(cache));
-            using var loaded = Image.FromStream(stream);
-            coverImage = new Bitmap(loaded);
-            hero.Invalidate();
-            tileImage.Image = new Bitmap(coverImage);
+            if (imageUrl == null) return;
+
+            var bytes = await http.GetByteArrayAsync(imageUrl);
+            if (bytes.Length < 10_000) return;
+            string temp = CoverPath + ".tmp";
+            await File.WriteAllBytesAsync(temp, bytes);
+            using (var stream = new MemoryStream(bytes))
+            using (var img = Image.FromStream(stream))
+            {
+                var newImage = new Bitmap(img);
+                var old = cover;
+                cover = newImage;
+                old?.Dispose();
+            }
+            File.Copy(temp, CoverPath, true);
+            File.Delete(temp);
+            if (IsDisposed) return;
+            if (InvokeRequired) BeginInvoke(new Action(UpdateArtworkOnScreen));
+            else UpdateArtworkOnScreen();
         }
         catch
         {
-            // The UI remains usable offline; the cover falls back to the built-in gradient.
+            LoadCachedCover();
         }
+    }
+
+    private void LoadCachedCover()
+    {
+        try
+        {
+            using var fs = new FileStream(CoverPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var img = Image.FromStream(fs);
+            cover?.Dispose();
+            cover = new Bitmap(img);
+            UpdateArtworkOnScreen();
+        }
+        catch { }
+    }
+
+    private void UpdateArtworkOnScreen()
+    {
+        if (IsDisposed) return;
+        hero?.Invalidate();
+        if (gameTile != null && !gameTile.IsDisposed)
+        {
+            var old = gameTile.Image;
+            gameTile.Image = cover == null ? null : new Bitmap(cover);
+            old?.Dispose();
+        }
+        if (coverStatus != null) coverStatus.Text = "ОБЛОЖКА ИЗ АКТУАЛЬНЫХ НОВОСТЕЙ";
     }
 
     private void PaintHero(object? sender, PaintEventArgs e)
     {
+        var bounds = ((Control)sender!).ClientRectangle;
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.HighQuality;
-        var bounds = hero.ClientRectangle;
-        if (coverImage != null)
+        if (cover != null)
         {
-            float scale = Math.Max((float)bounds.Width / coverImage.Width, (float)bounds.Height / coverImage.Height);
-            int w = (int)(coverImage.Width * scale), h = (int)(coverImage.Height * scale);
-            g.DrawImage(coverImage, new Rectangle((bounds.Width - w) / 2, (bounds.Height - h) / 2, w, h));
+            float scale = Math.Max((float)bounds.Width / cover.Width, (float)bounds.Height / cover.Height);
+            int w = (int)(cover.Width * scale), h = (int)(cover.Height * scale);
+            g.DrawImage(cover, new Rectangle((bounds.Width - w) / 2, (bounds.Height - h) / 2, w, h));
         }
         else
         {
-            using var bgBrush = new LinearGradientBrush(bounds, Color.FromArgb(39, 91, 135), Color.FromArgb(19, 24, 39), 20f);
-            g.FillRectangle(bgBrush, bounds);
+            using var gradient = new LinearGradientBrush(bounds, Color.FromArgb(43, 98, 145), Color.FromArgb(15, 20, 34), 15);
+            g.FillRectangle(gradient, bounds);
         }
-        using var overlay = new LinearGradientBrush(bounds,
-            Color.FromArgb(235, 8, 13, 23), Color.FromArgb(30, 8, 13, 23), LinearGradientMode.Horizontal);
-        g.FillRectangle(overlay, bounds);
-        using var bottom = new LinearGradientBrush(bounds,
-            Color.FromArgb(0, 8, 13, 23), Color.FromArgb(115, 8, 13, 23), LinearGradientMode.Vertical);
-        g.FillRectangle(bottom, bounds);
+        using var shade = new LinearGradientBrush(bounds, Color.FromArgb(210, 5, 10, 20), Color.FromArgb(15, 5, 10, 20), LinearGradientMode.Horizontal);
+        g.FillRectangle(shade, bounds);
     }
 
-    private async void ChooseGameExe()
+    private void ShowProfiles()
     {
-        using var dialog = new OpenFileDialog { Title = "Выбери FortniteClient-Win64-Shipping.exe", Filter = "Fortnite executable (*.exe)|*.exe" };
-        if (dialog.ShowDialog() != DialogResult.OK) return;
-        gameExe = dialog.FileName;
-        status.Text = "УСТАНОВЛЕНА";
-        status.ForeColor = Color.FromArgb(116, 220, 160);
-        MessageBox.Show("Путь к Fortnite сохранён.", "Fortnite Booster PRO", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        await Task.CompletedTask;
+        using var f = CreateDialog("ПРОФИЛИ ИГРОКОВ", 600, 520);
+        var list = new ListBox
+        {
+            Location = new Point(24, 65), Size = new Size(535, 245),
+            BackColor = panel2, ForeColor = text, BorderStyle = BorderStyle.None,
+            Font = new Font("Segoe UI", 10)
+        };
+        foreach (var p in data.Profiles)
+            list.Items.Add(new ProfileListItem(p));
+        list.SelectedIndex = data.Profiles.FindIndex(p => p.Id == data.ActiveProfileId);
+        f.Controls.Add(list);
+
+        var add = MakeButton("+  НОВЫЙ ПРОФИЛЬ", 24, 335, 170, 42, blue, Color.FromArgb(5, 20, 29));
+        add.Click += (_, _) =>
+        {
+            string name = AskText("Название профиля", "Новый профиль");
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var p = new UserProfile { Name = name.Trim() };
+            data.Profiles.Add(p);
+            SaveData();
+            list.Items.Add(new ProfileListItem(p));
+            list.SelectedIndex = list.Items.Count - 1;
+        };
+        f.Controls.Add(add);
+
+        var rename = MakeButton("ПЕРЕИМЕНОВАТЬ", 204, 335, 155, 42, panel2, text);
+        rename.Click += (_, _) =>
+        {
+            if (list.SelectedItem is not ProfileListItem item) return;
+            string name = AskText("Новое имя профиля", item.Profile.Name);
+            if (string.IsNullOrWhiteSpace(name)) return;
+            item.Profile.Name = name.Trim();
+            SaveData();
+            int index = list.SelectedIndex;
+            list.Items[index] = new ProfileListItem(item.Profile);
+            UpdateProfileButton();
+        };
+        f.Controls.Add(rename);
+
+        var remove = MakeButton("УДАЛИТЬ", 369, 335, 100, 42, panel2, Color.FromArgb(255, 135, 135));
+        remove.Click += (_, _) =>
+        {
+            if (list.SelectedItem is not ProfileListItem item || data.Profiles.Count < 2) return;
+            if (MessageBox.Show("Удалить профиль " + item.Profile.Name + "?", "Подтверждение", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            data.Profiles.Remove(item.Profile);
+            if (data.ActiveProfileId == item.Profile.Id) data.ActiveProfileId = data.Profiles[0].Id;
+            SaveData();
+            list.Items.Remove(item);
+            UpdateProfileButton();
+        };
+        f.Controls.Add(remove);
+
+        var activate = MakeButton("ПЕРЕКЛЮЧИТЬСЯ", 24, 395, 535, 48, blue, Color.FromArgb(5, 20, 29));
+        activate.Click += (_, _) =>
+        {
+            if (list.SelectedItem is not ProfileListItem item) return;
+            data.ActiveProfileId = item.Profile.Id;
+            SaveData();
+            UpdateProfileButton();
+            f.Close();
+            if (currentPage == "game") ShowGameDetails(); else ShowLibrary();
+        };
+        f.Controls.Add(activate);
+        f.Controls.Add(new Label
+        {
+            Text = "Это локальные профили Booster. Вход и пароли Epic Games здесь не хранятся.",
+            Location = new Point(25, 463), Size = new Size(535, 22), ForeColor = muted,
+            Font = new Font("Segoe UI", 8)
+        });
+        f.ShowDialog(this);
+    }
+
+    private sealed class ProfileListItem
+    {
+        public UserProfile Profile { get; }
+        public ProfileListItem(UserProfile profile) => Profile = profile;
+        public override string ToString() => (Profile.Id == "" ? "" : "●  ") + Profile.Name +
+            (string.IsNullOrWhiteSpace(Profile.EpicNickname) ? "" : "   ·   " + Profile.EpicNickname);
+    }
+
+    private void ShowSettings()
+    {
+        using var f = CreateDialog("НАСТРОЙКИ ПРОФИЛЯ", 660, 600);
+        var p = Current;
+        AddSettingLabel(f, "НАЗВАНИЕ ПРОФИЛЯ", 24, 65);
+        var profileName = AddTextBox(f, p.Name, 24, 90, 590);
+        AddSettingLabel(f, "НИК EPIC GAMES (ТОЛЬКО ДЛЯ ОТОБРАЖЕНИЯ)", 24, 140);
+        var epic = AddTextBox(f, p.EpicNickname, 24, 165, 590);
+        AddSettingLabel(f, "РАСПОЛОЖЕНИЕ FORTNITE", 24, 215);
+        var path = AddTextBox(f, p.GamePath, 24, 240, 470);
+        var browse = MakeButton("ОБЗОР", 506, 239, 108, 34, panel2, text);
+        browse.Click += (_, _) =>
+        {
+            using var d = new OpenFileDialog { Title = "Выбери FortniteClient-Win64-Shipping.exe", Filter = "Fortnite executable (*.exe)|*.exe" };
+            if (d.ShowDialog() == DialogResult.OK) path.Text = d.FileName;
+        };
+        f.Controls.Add(browse);
+        AddSettingLabel(f, "ПАРАМЕТРЫ ЗАПУСКА (НЕОБЯЗАТЕЛЬНО)", 24, 290);
+        var args = AddTextBox(f, p.LaunchOptions, 24, 315, 590);
+        AddSettingLabel(f, "ПРОФИЛЬ ПРОИЗВОДИТЕЛЬНОСТИ", 24, 365);
+        var mode = new ComboBox
+        {
+            Location = new Point(24, 390), Size = new Size(590, 35),
+            DropDownStyle = ComboBoxStyle.DropDownList, BackColor = panel2, ForeColor = text,
+            FlatStyle = FlatStyle.Flat
+        };
+        mode.Items.AddRange(new object[] { "Сбалансированный", "Минимум фоновых отвлечений", "Стандартный Windows" });
+        mode.SelectedItem = p.PerformanceMode;
+        if (mode.SelectedIndex < 0) mode.SelectedIndex = 0;
+        f.Controls.Add(mode);
+
+        var save = MakeButton("СОХРАНИТЬ НАСТРОЙКИ", 24, 455, 590, 48, blue, Color.FromArgb(5, 20, 29));
+        save.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(profileName.Text)) { MessageBox.Show("Укажи название профиля."); return; }
+            p.Name = profileName.Text.Trim();
+            p.EpicNickname = epic.Text.Trim();
+            p.GamePath = path.Text.Trim();
+            p.LaunchOptions = args.Text.Trim();
+            p.PerformanceMode = mode.SelectedItem?.ToString() ?? "Сбалансированный";
+            SaveData();
+            UpdateProfileButton();
+            f.Close();
+            if (currentPage == "game") ShowGameDetails();
+        };
+        f.Controls.Add(save);
+        f.ShowDialog(this);
+    }
+
+    private Form CreateDialog(string title, int w, int h)
+    {
+        var f = new Form
+        {
+            Text = title,
+            Size = new Size(w, h),
+            StartPosition = FormStartPosition.CenterParent,
+            BackColor = bg,
+            ForeColor = text,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            Font = new Font("Segoe UI", 9)
+        };
+        f.Controls.Add(new Label
+        {
+            Text = title, Location = new Point(24, 20), Size = new Size(w - 60, 32),
+            ForeColor = text, Font = new Font("Segoe UI", 16, FontStyle.Bold)
+        });
+        return f;
+    }
+
+    private void AddSettingLabel(Control parent, string label, int x, int y) =>
+        parent.Controls.Add(new Label { Text = label, Location = new Point(x, y), Size = new Size(590, 20), ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold) });
+
+    private TextBox AddTextBox(Control parent, string value, int x, int y, int width)
+    {
+        var box = new TextBox
+        {
+            Text = value, Location = new Point(x, y), Size = new Size(width, 34),
+            BackColor = panel2, ForeColor = text, BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Segoe UI", 9)
+        };
+        parent.Controls.Add(box);
+        return box;
+    }
+
+    private string AskText(string title, string initial)
+    {
+        using var f = CreateDialog(title, 440, 190);
+        var input = AddTextBox(f, initial, 24, 70, 375);
+        var ok = MakeButton("СОХРАНИТЬ", 24, 112, 375, 38, blue, Color.FromArgb(5, 20, 29));
+        string result = "";
+        ok.Click += (_, _) => { result = input.Text; f.DialogResult = DialogResult.OK; f.Close(); };
+        f.Controls.Add(ok);
+        return f.ShowDialog(this) == DialogResult.OK ? result : "";
     }
 
     private string FindFortniteExe()
     {
-        string[] candidates =
+        string[] paths =
         {
             @"C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteClient-Win64-Shipping.exe",
             @"D:\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteClient-Win64-Shipping.exe",
             @"C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteLauncher.exe"
         };
-        return candidates.FirstOrDefault(File.Exists) ?? "";
+        return paths.FirstOrDefault(File.Exists) ?? "";
     }
 
     private void LaunchFortnite()
     {
         try
         {
-            if (File.Exists(gameExe))
+            if (File.Exists(Current.GamePath))
             {
-                Process.Start(new ProcessStartInfo(gameExe) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(gameExe)! });
+                var info = new ProcessStartInfo(Current.GamePath) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(Current.GamePath)! };
+                if (!string.IsNullOrWhiteSpace(Current.LaunchOptions)) info.Arguments = Current.LaunchOptions;
+                Process.Start(info);
                 return;
             }
-            var result = MessageBox.Show(
-                "Путь к Fortnite пока не указан. Открыть игру через Epic Games Launcher?\\nЕсли игра не установлена, откроется её страница.",
-                "Запуск Fortnite", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
-            if (result == DialogResult.Yes)
-                Process.Start(new ProcessStartInfo("com.epicgames.launcher://apps/Fortnite?action=launch&silent=true") { UseShellExecute = true });
-            else if (result == DialogResult.No)
-                OpenUrl(gamePage);
+            var choice = MessageBox.Show(
+                "Fortnite не найден в профиле.\\nДа — открыть страницу установки Epic Games.\\nНет — выбрать EXE установленной игры.",
+                "Fortnite", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+            if (choice == DialogResult.Yes) OpenUrl(epicPage);
+            else if (choice == DialogResult.No)
+            {
+                using var d = new OpenFileDialog { Title = "Выбери FortniteClient-Win64-Shipping.exe", Filter = "Fortnite executable (*.exe)|*.exe" };
+                if (d.ShowDialog() == DialogResult.OK)
+                {
+                    Current.GamePath = d.FileName;
+                    SaveData();
+                    ShowGameDetails();
+                }
+            }
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show("Не удалось запустить Fortnite: " + ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        catch (Exception ex) { MessageBox.Show("Не удалось запустить Fortnite: " + ex.Message); }
     }
 
     private void OpenUrl(string url)
     {
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
         catch (Exception ex) { MessageBox.Show(ex.Message); }
-    }
-
-    private void ShowBoost()
-    {
-        using var form = new Form
-        {
-            Text = "Fortnite Booster PRO — BOOST",
-            Size = new Size(560, 390),
-            StartPosition = FormStartPosition.CenterParent,
-            BackColor = background,
-            ForeColor = foreground,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false
-        };
-        form.Controls.Add(new Label { Text = "ПРОФИЛЬ СТАБИЛЬНОСТИ FPS", Location = new Point(24, 22), Size = new Size(480, 32), Font = new Font("Segoe UI", 15, FontStyle.Bold) });
-        form.Controls.Add(new Label { Text = "Ryzen 7 5700X  •  RTX 4060  •  16 GB RAM  •  Windows 11", Location = new Point(25, 63), Size = new Size(490, 24), ForeColor = secondary });
-        form.Controls.Add(new Label { Text = "Включает Windows Game Mode и отключает фоновую запись Game DVR. Перед изменениями создаётся резервная копия параметров текущего пользователя.", Location = new Point(25, 105), Size = new Size(490, 70), ForeColor = foreground });
-        var apply = MakeButton("ПРИМЕНИТЬ BOOST", 25, 205, 485, 48, cyan, Color.FromArgb(8, 19, 24));
-        apply.Click += (_, _) =>
-        {
-            try
-            {
-                SetUserDword(@"Software\Microsoft\GameBar", "AutoGameModeEnabled", 1);
-                SetUserDword(@"Software\Microsoft\GameBar", "AllowAutoGameMode", 1);
-                SetUserDword(@"System\GameConfigStore", "GameDVR_Enabled", 0);
-                SetUserDword(@"Software\Microsoft\Windows\CurrentVersion\GameDVR", "AppCaptureEnabled", 0);
-                MessageBox.Show("Профиль применён. Перезагрузи ПК перед проверкой Fortnite.", "Готово", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-        };
-        form.Controls.Add(apply);
-        form.Controls.Add(new Label { Text = "Не отключает службы Windows и не разгоняет комплектующие. Прирост FPS не гарантируется.", Location = new Point(25, 270), Size = new Size(490, 42), ForeColor = secondary });
-        form.ShowDialog(this);
-    }
-
-    private void SetUserDword(string path, string name, int value)
-    {
-        string backupPath = Path.Combine(appFolder, "registry-backup.json");
-        var backup = File.Exists(backupPath) ? File.ReadAllText(backupPath) : "{}";
-        using var document = System.Text.Json.JsonDocument.Parse(backup);
-        var values = new Dictionary<string, object?>();
-        foreach (var property in document.RootElement.EnumerateObject())
-            values[property.Name] = property.Value.Clone();
-        string id = path + "|" + name;
-        if (!values.ContainsKey(id))
-        {
-            using var key = Registry.CurrentUser.OpenSubKey(path);
-            bool existed = key?.GetValueNames().Contains(name) == true;
-            object? previous = existed ? key!.GetValue(name) : null;
-            values[id] = new { existed, previous };
-            File.WriteAllText(backupPath, System.Text.Json.JsonSerializer.Serialize(values));
-        }
-        using var writable = Registry.CurrentUser.CreateSubKey(path);
-        writable.SetValue(name, value, RegistryValueKind.DWord);
     }
 }
