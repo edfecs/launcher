@@ -110,14 +110,24 @@ internal sealed class PremiumButton : Button
     }
 }
 
+internal sealed class SmoothPanel : Panel
+{
+    public SmoothPanel()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                 ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        UpdateStyles();
+    }
+}
+
 internal sealed class MainForm : Form
 {
-    private readonly Color bg = Color.FromArgb(10, 10, 16);
-    private readonly Color panel = Color.FromArgb(20, 19, 30);
-    private readonly Color panel2 = Color.FromArgb(29, 27, 42);
-    private readonly Color text = Color.FromArgb(248, 246, 255);
-    private readonly Color muted = Color.FromArgb(157, 151, 178);
-    private readonly Color blue = Color.FromArgb(139, 92, 246);
+    private readonly Color bg = Color.FromArgb(9, 11, 18);
+    private readonly Color panel = Color.FromArgb(17, 20, 31);
+    private readonly Color panel2 = Color.FromArgb(25, 29, 43);
+    private readonly Color text = Color.FromArgb(245, 247, 255);
+    private readonly Color muted = Color.FromArgb(145, 155, 178);
+    private readonly Color blue = Color.FromArgb(126, 91, 239);
     private readonly string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FortniteBoosterPRO");
     private string DataPath => Path.Combine(root, "profiles.json");
     private string UpdateSettingsPath => Path.Combine(root, "update-settings.json");
@@ -141,6 +151,8 @@ internal sealed class MainForm : Form
     private System.Windows.Forms.Timer fadeTimer = null!;
     private int fadeFromIndex = -1;
     private float fadeProgress = 1f;
+    private DateTime fadeStartedAt;
+    private const int BannerTransitionMilliseconds = 820;
     private Label bannerHeadline = null!;
     private Label bannerCounter = null!;
     private Panel content = null!;
@@ -188,21 +200,22 @@ internal sealed class MainForm : Form
             if (updateSettings.AutoCheck) await CheckForUpdatesAsync(false);
         };
         refreshTimer.Start();
-        fadeTimer = new System.Windows.Forms.Timer { Interval = 16 };
+        fadeTimer = new System.Windows.Forms.Timer { Interval = 15 };
         fadeTimer.Tick += (_, _) =>
         {
-            fadeProgress = Math.Min(1f, fadeProgress + 0.032f);
+            // Use elapsed time instead of a fixed increment: timer jitter no longer
+            // changes the transition speed from one PC to another.
+            fadeProgress = Math.Clamp(
+                (float)(DateTime.UtcNow - fadeStartedAt).TotalMilliseconds / BannerTransitionMilliseconds,
+                0f, 1f);
             if (fadeProgress >= 1f)
             {
                 fadeTimer.Stop();
                 fadeFromIndex = -1;
-                UpdateBannerPresentation();
+                fadeProgress = 1f;
             }
-            else
-            {
-                if (hero != null && !hero.IsDisposed) hero.Invalidate();
-                if (gameHero != null && !gameHero.IsDisposed) gameHero.Invalidate();
-            }
+            if (hero != null && !hero.IsDisposed) hero.Invalidate();
+            if (gameHero != null && !gameHero.IsDisposed) gameHero.Invalidate();
         };
         bannerTimer = new System.Windows.Forms.Timer { Interval = 8500 };
         bannerTimer.Tick += (_, _) => ChangeBanner(1);
@@ -454,7 +467,7 @@ internal sealed class MainForm : Form
             Font = new Font("Segoe UI", 9, FontStyle.Bold)
         });
 
-        hero = new Panel
+        hero = new SmoothPanel
         {
             Location = new Point(0, 40),
             Size = new Size(Math.Max(700, content.ClientSize.Width - 58), 390),
@@ -850,7 +863,7 @@ internal sealed class MainForm : Form
             ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
         });
 
-        var art = new Panel
+        var art = new SmoothPanel
         {
             Location = new Point(0, 36),
             Size = new Size(Math.Max(700, content.ClientSize.Width - 58), 340),
@@ -1098,25 +1111,32 @@ internal sealed class MainForm : Form
             }
 
             if (newImages.Count == 0) return;
-            foreach (var old in banners) old.Dispose();
+
+            // Prepare the new tile cover before touching the currently displayed
+            // images. This keeps the old carousel alive if a download or decode fails.
+            var preparedCover = new Bitmap(newImages[0]);
+            fadeTimer?.Stop();
+            fadeFromIndex = -1;
+            fadeProgress = 1f;
+
+            var oldImages = banners.ToArray();
+            var oldCover = cover;
             banners.Clear();
             bannerTitles.Clear();
             banners.AddRange(newImages);
             bannerTitles.AddRange(newTitles);
+            newImages.Clear(); // ownership transferred to the carousel
             bannerIndex = 0;
-
-            // Keep a separate, persistent tile cover from the first current news image.
-            var firstPath = Path.Combine(root, "fortnite-banner-0.jpg");
-            if (File.Exists(firstPath))
+            cover = preparedCover;
+            try
             {
-                File.Copy(firstPath, CoverPath, true);
-                using var fs = new FileStream(CoverPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var img = Image.FromStream(fs);
-                var newCover = new Bitmap(img);
-                var oldCover = cover;
-                cover = newCover;
-                oldCover?.Dispose();
+                var firstPath = Path.Combine(root, "fortnite-banner-0.jpg");
+                if (File.Exists(firstPath)) File.Copy(firstPath, CoverPath, true);
             }
+            catch { }
+            foreach (var old in oldImages) old.Dispose();
+            oldCover?.Dispose();
+
             UpdateBannerPresentation();
             UpdateArtworkOnScreen();
         }
@@ -1151,6 +1171,9 @@ internal sealed class MainForm : Form
                 foreach (var old in banners) old.Dispose();
                 banners.Clear();
                 bannerTitles.Clear();
+                fadeTimer?.Stop();
+                fadeFromIndex = -1;
+                fadeProgress = 1f;
                 banners.AddRange(loaded);
                 bannerTitles.AddRange(titles);
                 bannerIndex = 0;
@@ -1166,10 +1189,15 @@ internal sealed class MainForm : Form
         if (banners.Count < 2) return;
         int next = (bannerIndex + delta + banners.Count) % banners.Count;
         if (next == bannerIndex) return;
+
+        // Finish any in-flight transition before starting another one. Otherwise
+        // rapid clicks can leave the outgoing image pointing at a disposed frame.
+        fadeTimer?.Stop();
         fadeFromIndex = bannerIndex;
         bannerIndex = next;
         fadeProgress = 0f;
-        if (fadeTimer != null) { fadeTimer.Stop(); fadeTimer.Start(); }
+        fadeStartedAt = DateTime.UtcNow;
+        fadeTimer?.Start();
         UpdateBannerPresentation();
     }
 
@@ -1285,11 +1313,11 @@ internal sealed class MainForm : Form
         Image? previous = fadeFromIndex >= 0 && fadeFromIndex < banners.Count ? banners[fadeFromIndex] : null;
         if (current != null)
         {
-            float eased = 1f - (float)Math.Pow(1f - fadeProgress, 3);
-            if (previous != null && fadeProgress < 1f)
+            float t = Math.Clamp(fadeProgress, 0f, 1f);
+            float eased = t * t * (3f - 2f * t); // smoothstep, no abrupt acceleration
+            if (previous != null && t < 1f)
             {
-                // Cross-dissolve: outgoing artwork remains opaque while the incoming
-                // artwork fades over it. This avoids the dark flash between slides.
+                g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
                 DrawCoverImage(g, previous, bounds, 1f);
                 DrawCoverImage(g, current, bounds, eased);
             }
@@ -1303,9 +1331,22 @@ internal sealed class MainForm : Form
             using var gradient = new LinearGradientBrush(bounds, Color.FromArgb(43, 98, 145), Color.FromArgb(15, 20, 34), 15);
             g.FillRectangle(gradient, bounds);
         }
-        using var shade = new LinearGradientBrush(bounds, Color.FromArgb(205, 5, 10, 20),
-            Color.FromArgb(12, 5, 10, 20), LinearGradientMode.Horizontal);
+        // Epic-style readability treatment: strong text-safe area on the left,
+        // softer lower vignette and a restrained violet accent at the bottom.
+        using var shade = new LinearGradientBrush(bounds,
+            Color.FromArgb(218, 5, 8, 17), Color.FromArgb(8, 5, 8, 17),
+            LinearGradientMode.Horizontal);
         g.FillRectangle(shade, bounds);
+        using var lowerShade = new LinearGradientBrush(
+            new Rectangle(0, bounds.Height - 125, bounds.Width, 125),
+            Color.FromArgb(0, 5, 8, 17), Color.FromArgb(105, 5, 8, 17),
+            LinearGradientMode.Vertical);
+        g.FillRectangle(lowerShade, 0, bounds.Height - 125, bounds.Width, 125);
+        using var accent = new LinearGradientBrush(
+            new Rectangle(0, bounds.Height - 3, bounds.Width, 3),
+            Color.FromArgb(0, 139, 92, 246), Color.FromArgb(210, 139, 92, 246),
+            LinearGradientMode.Horizontal);
+        g.FillRectangle(accent, 0, bounds.Height - 3, bounds.Width, 3);
     }
 
     private static void DrawCoverImage(Graphics graphics, Image image, Rectangle bounds, float opacity)
