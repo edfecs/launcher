@@ -116,8 +116,8 @@ internal sealed class MainForm : Form
         var search = new TextBox
         {
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(Width - 560, 21),
-            Size = new Size(230, 34),
+            Location = new Point(Width - 650, 21),
+            Size = new Size(240, 34),
             BackColor = panel,
             ForeColor = text,
             BorderStyle = BorderStyle.FixedSingle,
@@ -137,7 +137,7 @@ internal sealed class MainForm : Form
         profileButton = new Label
         {
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Location = new Point(Width - 310, 20),
+            Location = new Point(Width - 400, 20),
             Size = new Size(170, 36),
             BackColor = panel2,
             ForeColor = text,
@@ -150,10 +150,16 @@ internal sealed class MainForm : Form
 
         var settings = MakeButton("⚙", 0, 19, 42, 38, panel2, text);
         settings.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        settings.Location = new Point(Width - 91, 19);
+        settings.Location = new Point(Width - 66, 19);
         settings.Font = new Font("Segoe UI Symbol", 15);
         settings.Click += (_, _) => ShowSettings();
         top.Controls.Add(settings);
+
+        var boost = MakeButton("BOOST", 0, 19, 88, 38, blue, Color.FromArgb(5, 20, 29));
+        boost.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        boost.Location = new Point(Width - 165, 19);
+        boost.Click += (_, _) => ShowBoost();
+        top.Controls.Add(boost);
 
         var divider = new Panel { Dock = DockStyle.Top, Height = 1, BackColor = Color.FromArgb(42, 47, 58) };
         Controls.Add(divider);
@@ -498,7 +504,7 @@ internal sealed class MainForm : Form
     private void UpdateArtworkOnScreen()
     {
         if (IsDisposed) return;
-        hero?.Invalidate();
+        if (hero != null && !hero.IsDisposed) hero.Invalidate();
         if (gameTile != null && !gameTile.IsDisposed)
         {
             var old = gameTile.Image;
@@ -716,6 +722,63 @@ internal sealed class MainForm : Form
             @"C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteLauncher.exe"
         };
         return paths.FirstOrDefault(File.Exists) ?? "";
+    }
+    
+    private void ShowBoost()
+    {
+        using var f = CreateDialog("ПРОФИЛЬ СТАБИЛЬНОСТИ FPS", 590, 410);
+        f.Controls.Add(new Label
+        {
+            Text = "Ryzen 7 5700X  •  RTX 4060  •  16 GB RAM  •  Windows 11",
+            Location = new Point(25, 68), Size = new Size(530, 25), ForeColor = muted
+        });
+        f.Controls.Add(new Label
+        {
+            Text = "Профиль включает Windows Game Mode и отключает фоновую запись Game DVR для текущего пользователя.\nПеред изменениями создаётся резервная копия исходных значений.",
+            Location = new Point(25, 112), Size = new Size(530, 65), ForeColor = text
+        });
+        var apply = MakeButton("ПРИМЕНИТЬ БЕЗОПАСНЫЙ BOOST", 25, 205, 530, 48, blue, Color.FromArgb(5, 20, 29));
+        apply.Click += (_, _) =>
+        {
+            try
+            {
+                SetUserDword(@"Software\Microsoft\GameBar", "AutoGameModeEnabled", 1);
+                SetUserDword(@"Software\Microsoft\GameBar", "AllowAutoGameMode", 1);
+                SetUserDword(@"System\GameConfigStore", "GameDVR_Enabled", 0);
+                SetUserDword(@"Software\Microsoft\Windows\CurrentVersion\GameDVR", "AppCaptureEnabled", 0);
+                MessageBox.Show("Параметры применены. Перезагрузи Windows перед сравнительным тестом FPS.", "Fortnite Booster PRO", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "Ошибка"); }
+        };
+        f.Controls.Add(apply);
+        f.Controls.Add(new Label
+        {
+            Text = "Без разгона, отключения служб и сомнительных твиков. Прирост FPS не гарантируется.",
+            Location = new Point(25, 278), Size = new Size(530, 42), ForeColor = muted
+        });
+        f.ShowDialog(this);
+    }
+
+    private void SetUserDword(string path, string name, int value)
+    {
+        string backupPath = Path.Combine(root, "registry-backup.json");
+        Dictionary<string, JsonElement> saved = new();
+        if (File.Exists(backupPath))
+        {
+            try { saved = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(backupPath)) ?? new(); }
+            catch { }
+        }
+        string keyName = path + "|" + name;
+        if (!saved.ContainsKey(keyName))
+        {
+            using var oldKey = Registry.CurrentUser.OpenSubKey(path);
+            bool existed = oldKey?.GetValueNames().Contains(name) == true;
+            object? oldValue = existed ? oldKey!.GetValue(name) : null;
+            saved[keyName] = JsonSerializer.SerializeToElement(new { existed, oldValue });
+            File.WriteAllText(backupPath, JsonSerializer.Serialize(saved, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        using var key = Registry.CurrentUser.CreateSubKey(path);
+        key.SetValue(name, value, RegistryValueKind.DWord);
     }
 
     private void LaunchFortnite()
