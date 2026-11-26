@@ -50,6 +50,12 @@ internal sealed class MainForm : Form
     private AppData data = new();
     private UserProfile Current => data.Profiles.First(p => p.Id == data.ActiveProfileId);
     private Image? cover;
+    private readonly List<Image> banners = new();
+    private readonly List<string> bannerTitles = new();
+    private int bannerIndex;
+    private System.Windows.Forms.Timer bannerTimer = null!;
+    private Label bannerHeadline = null!;
+    private Label bannerCounter = null!;
     private Panel content = null!;
     private Panel hero = null!;
     private PictureBox gameTile = null!;
@@ -70,6 +76,7 @@ internal sealed class MainForm : Form
         Font = new Font("Segoe UI", 9.5f);
         DoubleBuffered = true;
         LoadData();
+        LoadCachedBanners();
         BuildShell();
         try
         {
@@ -84,6 +91,14 @@ internal sealed class MainForm : Form
         refreshTimer = new System.Windows.Forms.Timer { Interval = 6 * 60 * 60 * 1000 };
         refreshTimer.Tick += async (_, _) => await RefreshArtworkAsync();
         refreshTimer.Start();
+        bannerTimer = new System.Windows.Forms.Timer { Interval = 8500 };
+        bannerTimer.Tick += (_, _) =>
+        {
+            if (banners.Count < 2) return;
+            bannerIndex = (bannerIndex + 1) % banners.Count;
+            UpdateBannerPresentation();
+        };
+        bannerTimer.Start();
     }
 
     private void LoadData()
@@ -282,7 +297,7 @@ internal sealed class MainForm : Form
         hero = new Panel
         {
             Location = new Point(0, 40),
-            Size = new Size(Math.Max(700, content.ClientSize.Width - 58), 410),
+            Size = new Size(Math.Max(700, content.ClientSize.Width - 58), 390),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             BackColor = Color.FromArgb(30, 64, 100),
             Cursor = Cursors.Hand
@@ -310,19 +325,59 @@ internal sealed class MainForm : Form
             BackColor = Color.Transparent,
             Font = new Font("Segoe UI", 43, FontStyle.Bold)
         });
-        hero.Controls.Add(new Label
+        bannerHeadline = new Label
         {
             Text = "Новый сезон. Новые возможности. Твоя следующая победа.",
             Location = new Point(36, 165),
-            Size = new Size(550, 30),
+            Size = new Size(590, 48),
             ForeColor = Color.White,
             BackColor = Color.Transparent,
             Font = new Font("Segoe UI", 11)
-        });
-        var details = MakeButton("ОТКРЫТЬ СТРАНИЦУ  →", 35, 240, 205, 48, Color.White, Color.FromArgb(17, 25, 37));
+        };
+        hero.Controls.Add(bannerHeadline);
+
+        bannerCounter = new Label
+        {
+            Text = "01 / 01",
+            Location = new Point(0, 0),
+            Size = new Size(74, 30),
+            ForeColor = Color.White,
+            BackColor = Color.FromArgb(150, 8, 11, 18),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI", 8, FontStyle.Bold),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        hero.Controls.Add(bannerCounter);
+        var previousBanner = MakeButton("‹", 0, 0, 38, 38, Color.FromArgb(190, 12, 16, 25), Color.White);
+        previousBanner.Font = new Font("Segoe UI", 20, FontStyle.Bold);
+        previousBanner.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        previousBanner.Click += (_, _) => ChangeBanner(-1);
+        hero.Controls.Add(previousBanner);
+        var nextBanner = MakeButton("›", 0, 0, 38, 38, Color.FromArgb(190, 12, 16, 25), Color.White);
+        nextBanner.Font = new Font("Segoe UI", 20, FontStyle.Bold);
+        nextBanner.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        nextBanner.Click += (_, _) => ChangeBanner(1);
+        hero.Controls.Add(nextBanner);
+        var refreshBanner = MakeButton("↻  ОБНОВИТЬ БАННЕРЫ", 0, 0, 174, 34, Color.FromArgb(180, 12, 16, 25), Color.White);
+        refreshBanner.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        refreshBanner.Click += async (_, _) => await RefreshArtworkAsync();
+        hero.Controls.Add(refreshBanner);
+
+        void LayoutBannerControls()
+        {
+            int right = hero.ClientSize.Width - 22;
+            bannerCounter.Location = new Point(right - 74, 20);
+            nextBanner.Location = new Point(right - 38, 62);
+            previousBanner.Location = new Point(right - 82, 62);
+            refreshBanner.Location = new Point(right - 174, hero.ClientSize.Height - 52);
+        }
+        hero.Resize += (_, _) => LayoutBannerControls();
+        LayoutBannerControls();
+
+        var details = MakeButton("ОТКРЫТЬ СТРАНИЦУ  →", 35, 250, 205, 48, Color.White, Color.FromArgb(17, 25, 37));
         details.Click += (_, _) => ShowGameDetails();
         hero.Controls.Add(details);
-        var play = MakeButton("▶  ИГРАТЬ", 252, 240, 145, 48, blue, Color.FromArgb(5, 20, 29));
+        var play = MakeButton("▶  ИГРАТЬ", 252, 250, 145, 48, blue, Color.FromArgb(5, 20, 29));
         play.Click += (_, _) => LaunchFortnite();
         hero.Controls.Add(play);
 
@@ -345,7 +400,7 @@ internal sealed class MainForm : Form
 
         gameTile = new PictureBox
         {
-            Location = new Point(0, 540),
+            Location = new Point(0, 520),
             Size = new Size(220, 255),
             BackColor = panel,
             SizeMode = PictureBoxSizeMode.Zoom,
@@ -357,7 +412,7 @@ internal sealed class MainForm : Form
         var tileName = new Label
         {
             Text = "FORTNITE",
-            Location = new Point(12, 765),
+            Location = new Point(12, 745),
             Size = new Size(195, 23),
             ForeColor = text,
             BackColor = panel,
@@ -370,7 +425,7 @@ internal sealed class MainForm : Form
         coverStatus = new Label
         {
             Text = "АКТУАЛЬНАЯ ОБЛОЖКА",
-            Location = new Point(12, 789),
+            Location = new Point(12, 769),
             Size = new Size(200, 18),
             ForeColor = muted,
             BackColor = panel,
@@ -402,6 +457,13 @@ internal sealed class MainForm : Form
         };
         art.Paint += PaintHero;
         content.Controls.Add(art);
+        art.Controls.Add(new Label
+        {
+            Text = "EPIC GAMES  /  FREE TO PLAY",
+            Location = new Point(34, 28), Size = new Size(300, 20),
+            ForeColor = Color.FromArgb(210, 230, 245), BackColor = Color.Transparent,
+            Font = new Font("Segoe UI", 8, FontStyle.Bold)
+        });
         art.Controls.Add(new Label
         {
             Text = "FORTNITE",
@@ -462,72 +524,200 @@ internal sealed class MainForm : Form
         var news = MakeButton("ОТКРЫТЬ НОВОСТИ FORTNITE  ↗", 4, 630, 245, 40, panel2, text);
         news.Click += (_, _) => OpenUrl("https://www.fortnite.com/news");
         content.Controls.Add(news);
+        var refreshArt = MakeButton("↻  ОБНОВИТЬ БАННЕРЫ", 260, 630, 210, 40, panel2, text);
+        refreshArt.Click += async (_, _) => await RefreshArtworkAsync();
+        content.Controls.Add(refreshArt);
     }
 
     private async Task RefreshArtworkAsync()
     {
         try
         {
-            string? imageUrl = null;
-
-            // Epic's news API changes its response shape occasionally. Search the
-            // complete JSON tree instead of depending on one fixed property path.
+            var items = new List<(string Title, string Url)>();
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, newsUrl);
-                request.Headers.UserAgent.ParseAdd("FortniteBoosterPRO/2.2");
+                request.Headers.UserAgent.ParseAdd("FortniteBoosterPRO/2.3");
                 using var response = await http.SendAsync(request);
                 response.EnsureSuccessStatusCode();
                 using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-                imageUrl = FindArtworkUrl(doc.RootElement);
+                CollectNewsArtwork(doc.RootElement, items);
             }
             catch { }
 
-            // Fallback to the official Fortnite page's social preview image.
-            if (string.IsNullOrWhiteSpace(imageUrl))
-                imageUrl = await TryGetOfficialPageArtworkAsync();
+            if (items.Count > 0)
+                await DownloadAndCacheBannersAsync(items.Take(6).ToList());
 
-            if (!string.IsNullOrWhiteSpace(imageUrl))
-                await DownloadAndSaveArtworkAsync(imageUrl);
-            else if (cover == null && File.Exists(CoverPath))
-                LoadCachedCover();
+            if (cover == null)
+            {
+                if (File.Exists(CoverPath)) LoadCachedCover();
+                else
+                {
+                    var fallback = await TryGetOfficialPageArtworkAsync();
+                    if (!string.IsNullOrWhiteSpace(fallback))
+                        await DownloadAndSaveArtworkAsync(fallback);
+                }
+            }
+            if (banners.Count == 0) LoadCachedBanners();
+            UpdateArtworkOnScreen();
         }
         catch
         {
-            // Keep the last known good image; never clear the current cover on failure.
+            // Keep the last good artwork and cached carousel if the network is unavailable.
             if (cover == null && File.Exists(CoverPath)) LoadCachedCover();
+            if (banners.Count == 0) LoadCachedBanners();
         }
     }
 
-    private static string? FindArtworkUrl(JsonElement element)
+    private static void CollectNewsArtwork(JsonElement element, List<(string Title, string Url)> results)
     {
-        string[] preferredKeys = { "image", "tileImage", "imageUrl", "featuredImage", "background" };
         if (element.ValueKind == JsonValueKind.Object)
         {
-            foreach (var key in preferredKeys)
-            {
-                if (element.TryGetProperty(key, out var value) &&
-                    value.ValueKind == JsonValueKind.String)
-                {
-                    var candidate = value.GetString();
-                    if (IsHttpImageUrl(candidate)) return candidate;
-                }
-            }
+            string? title = null;
+            string? imageUrl = null;
             foreach (var property in element.EnumerateObject())
             {
-                var found = FindArtworkUrl(property.Value);
-                if (found != null) return found;
+                if (property.Value.ValueKind != JsonValueKind.String) continue;
+                string? value = property.Value.GetString();
+                if (property.Name.Equals("title", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Equals("headline", StringComparison.OrdinalIgnoreCase))
+                    title = value;
+                if (property.Name.Equals("image", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Equals("tileImage", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Equals("imageUrl", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Equals("featuredImage", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Equals("background", StringComparison.OrdinalIgnoreCase) ||
+                    property.Name.Equals("banner", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (IsHttpImageUrl(value)) imageUrl = value;
+                }
             }
+
+            if (!string.IsNullOrWhiteSpace(imageUrl) &&
+                !results.Any(x => x.Url.Equals(imageUrl, StringComparison.OrdinalIgnoreCase)))
+                results.Add((string.IsNullOrWhiteSpace(title) ? "НОВОСТИ FORTNITE" : title.Trim(), imageUrl!));
+
+            foreach (var property in element.EnumerateObject())
+                CollectNewsArtwork(property.Value, results);
         }
         else if (element.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in element.EnumerateArray())
+                CollectNewsArtwork(item, results);
+        }
+    }
+
+    private async Task DownloadAndCacheBannersAsync(List<(string Title, string Url)> items)
+    {
+        var newImages = new List<Image>();
+        var newTitles = new List<string>();
+        try
+        {
+            int index = 0;
+            foreach (var item in items)
             {
-                var found = FindArtworkUrl(item);
-                if (found != null) return found;
+                try
+                {
+                    byte[] bytes = await http.GetByteArrayAsync(item.Url);
+                    if (bytes.Length < 5000 || bytes.Length > 15_000_000) continue;
+                    using var stream = new MemoryStream(bytes);
+                    using var decoded = Image.FromStream(stream);
+                    if (decoded.Width < 320 || decoded.Height < 140) continue;
+                    var image = new Bitmap(decoded);
+                    string path = Path.Combine(root, $"fortnite-banner-{index}.jpg");
+                    string temp = path + ".tmp";
+                    await File.WriteAllBytesAsync(temp, bytes);
+                    File.Copy(temp, path, true);
+                    File.Delete(temp);
+                    newImages.Add(image);
+                    newTitles.Add(item.Title);
+                    index++;
+                    if (index >= 6) break;
+                }
+                catch { }
+            }
+
+            if (newImages.Count == 0) return;
+            foreach (var old in banners) old.Dispose();
+            banners.Clear();
+            bannerTitles.Clear();
+            banners.AddRange(newImages);
+            bannerTitles.AddRange(newTitles);
+            bannerIndex = 0;
+
+            // Keep a separate, persistent tile cover from the first current news image.
+            var firstPath = Path.Combine(root, "fortnite-banner-0.jpg");
+            if (File.Exists(firstPath))
+            {
+                File.Copy(firstPath, CoverPath, true);
+                using var fs = new FileStream(CoverPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var img = Image.FromStream(fs);
+                var newCover = new Bitmap(img);
+                var oldCover = cover;
+                cover = newCover;
+                oldCover?.Dispose();
+            }
+            UpdateBannerPresentation();
+            UpdateArtworkOnScreen();
+        }
+        catch
+        {
+            foreach (var image in newImages) image.Dispose();
+            if (banners.Count == 0) LoadCachedBanners();
+        }
+    }
+
+    private void LoadCachedBanners()
+    {
+        try
+        {
+            var loaded = new List<Image>();
+            var titles = new List<string>();
+            for (int i = 0; i < 6; i++)
+            {
+                string path = Path.Combine(root, $"fortnite-banner-{i}.jpg");
+                if (!File.Exists(path)) break;
+                try
+                {
+                    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var img = Image.FromStream(fs);
+                    loaded.Add(new Bitmap(img));
+                    titles.Add("АКТУАЛЬНЫЕ НОВОСТИ FORTNITE");
+                }
+                catch { break; }
+            }
+            if (loaded.Count > 0)
+            {
+                foreach (var old in banners) old.Dispose();
+                banners.Clear();
+                bannerTitles.Clear();
+                banners.AddRange(loaded);
+                bannerTitles.AddRange(titles);
+                bannerIndex = 0;
+                if (cover == null && File.Exists(CoverPath)) LoadCachedCover();
+                UpdateBannerPresentation();
             }
         }
-        return null;
+        catch { }
+    }
+
+    private void ChangeBanner(int delta)
+    {
+        if (banners.Count < 2) return;
+        bannerIndex = (bannerIndex + delta + banners.Count) % banners.Count;
+        UpdateBannerPresentation();
+    }
+
+    private void UpdateBannerPresentation()
+    {
+        if (IsDisposed) return;
+        if (bannerHeadline != null && !bannerHeadline.IsDisposed &&
+            bannerIndex >= 0 && bannerIndex < bannerTitles.Count &&
+            !string.IsNullOrWhiteSpace(bannerTitles[bannerIndex]))
+            bannerHeadline.Text = bannerTitles[bannerIndex];
+        if (bannerCounter != null && !bannerCounter.IsDisposed)
+            bannerCounter.Text = $"{bannerIndex + 1:00} / {Math.Max(1, banners.Count):00}";
+        if (hero != null && !hero.IsDisposed) hero.Invalidate();
     }
 
     private static bool IsHttpImageUrl(string? value) =>
@@ -627,11 +817,12 @@ internal sealed class MainForm : Form
         var bounds = ((Control)sender!).ClientRectangle;
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.HighQuality;
-        if (cover != null)
+        Image? activeBanner = banners.Count > 0 && bannerIndex < banners.Count ? banners[bannerIndex] : cover;
+        if (activeBanner != null)
         {
-            float scale = Math.Max((float)bounds.Width / cover.Width, (float)bounds.Height / cover.Height);
-            int w = (int)(cover.Width * scale), h = (int)(cover.Height * scale);
-            g.DrawImage(cover, new Rectangle((bounds.Width - w) / 2, (bounds.Height - h) / 2, w, h));
+            float scale = Math.Max((float)bounds.Width / activeBanner.Width, (float)bounds.Height / activeBanner.Height);
+            int w = (int)(activeBanner.Width * scale), h = (int)(activeBanner.Height * scale);
+            g.DrawImage(activeBanner, new Rectangle((bounds.Width - w) / 2, (bounds.Height - h) / 2, w, h));
         }
         else
         {
