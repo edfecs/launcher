@@ -468,54 +468,132 @@ internal sealed class MainForm : Form
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, newsUrl);
-            request.Headers.UserAgent.ParseAdd("FortniteBoosterPRO/2.0");
-            using var response = await http.SendAsync(request);
-            response.EnsureSuccessStatusCode();
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            if (!doc.RootElement.TryGetProperty("data", out var dataNode) ||
-                !dataNode.TryGetProperty("br", out var br) ||
-                !br.TryGetProperty("motds", out var motds) ||
-                motds.ValueKind != JsonValueKind.Array) return;
-
             string? imageUrl = null;
-            foreach (var item in motds.EnumerateArray())
-            {
-                foreach (var key in new[] { "image", "tileImage" })
-                {
-                    if (item.TryGetProperty(key, out var image) && image.ValueKind == JsonValueKind.String)
-                    {
-                        var candidate = image.GetString();
-                        if (!string.IsNullOrWhiteSpace(candidate) && candidate.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                        { imageUrl = candidate; break; }
-                    }
-                }
-                if (imageUrl != null) break;
-            }
-            if (imageUrl == null) return;
 
-            var bytes = await http.GetByteArrayAsync(imageUrl);
-            if (bytes.Length < 10_000) return;
-            string temp = CoverPath + ".tmp";
-            await File.WriteAllBytesAsync(temp, bytes);
-            using (var stream = new MemoryStream(bytes))
-            using (var img = Image.FromStream(stream))
+            // Epic's news API changes its response shape occasionally. Search the
+            // complete JSON tree instead of depending on one fixed property path.
+            try
             {
-                var newImage = new Bitmap(img);
-                var old = cover;
-                cover = newImage;
-                old?.Dispose();
+                using var request = new HttpRequestMessage(HttpMethod.Get, newsUrl);
+                request.Headers.UserAgent.ParseAdd("FortniteBoosterPRO/2.2");
+                using var response = await http.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                imageUrl = FindArtworkUrl(doc.RootElement);
             }
-            File.Copy(temp, CoverPath, true);
-            File.Delete(temp);
-            if (IsDisposed) return;
-            if (InvokeRequired) BeginInvoke(new Action(UpdateArtworkOnScreen));
-            else UpdateArtworkOnScreen();
+            catch { }
+
+            // Fallback to the official Fortnite page's social preview image.
+            if (string.IsNullOrWhiteSpace(imageUrl))
+                imageUrl = await TryGetOfficialPageArtworkAsync();
+
+            if (!string.IsNullOrWhiteSpace(imageUrl))
+                await DownloadAndSaveArtworkAsync(imageUrl);
+            else if (cover == null && File.Exists(CoverPath))
+                LoadCachedCover();
         }
         catch
         {
-            LoadCachedCover();
+            // Keep the last known good image; never clear the current cover on failure.
+            if (cover == null && File.Exists(CoverPath)) LoadCachedCover();
         }
+    }
+
+    private static string? FindArtworkUrl(JsonElement element)
+    {
+        string[] preferredKeys = { "image", "tileImage", "imageUrl", "featuredImage", "background" };
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var key in preferredKeys)
+            {
+                if (element.TryGetProperty(key, out var value) &&
+                    value.ValueKind == JsonValueKind.String)
+                {
+                    var candidate = value.GetString();
+                    if (IsHttpImageUrl(candidate)) return candidate;
+                }
+            }
+            foreach (var property in element.EnumerateObject())
+            {
+                var found = FindArtworkUrl(property.Value);
+                if (found != null) return found;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var found = FindArtworkUrl(item);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static bool IsHttpImageUrl(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        (value.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+         value.StartsWith("http://", StringComparison.OrdinalIgnoreCase));
+
+    private async Task<string?> TryGetOfficialPageArtworkAsync()
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "https://www.fortnite.com/");
+            request.Headers.UserAgent.ParseAdd("Mozilla/5.0 FortniteBoosterPRO/2.2");
+            using var response = await http.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+            string html = await response.Content.ReadAsStringAsync();
+
+            foreach (string marker in new[] { "property=\\"og:image\\"", "name=\\"twitter:image\\"" })
+            {
+                int markerIndex = html.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                if (markerIndex < 0) continue;
+                int tagStart = html.LastIndexOf("<meta", markerIndex, StringComparison.OrdinalIgnoreCase);
+                int tagEnd = html.IndexOf('>', markerIndex);
+                if (tagStart < 0 || tagEnd < 0) continue;
+                string tag = html.Substring(tagStart, tagEnd - tagStart + 1);
+                int contentIndex = tag.IndexOf("content=\\"", StringComparison.OrdinalIgnoreCase);
+                if (contentIndex < 0) continue;
+                contentIndex += 9;
+                int valueEnd = tag.IndexOf('"', contentIndex);
+                if (valueEnd <= contentIndex) continue;
+                string url = System.Net.WebUtility.HtmlDecode(tag.Substring(contentIndex, valueEnd - contentIndex));
+                if (IsHttpImageUrl(url)) return url;
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private async Task DownloadAndSaveArtworkAsync(string imageUrl)
+    {
+        var bytes = await http.GetByteArrayAsync(imageUrl);
+        if (bytes.Length < 5_000) return;
+
+        // Validate the image before replacing the cached copy.
+        using var stream = new MemoryStream(bytes);
+        using var decoded = Image.FromStream(stream);
+        var newImage = new Bitmap(decoded);
+
+        string temp = CoverPath + ".tmp";
+        await File.WriteAllBytesAsync(temp, bytes);
+        try
+        {
+            File.Copy(temp, CoverPath, true);
+        }
+        finally
+        {
+            if (File.Exists(temp)) File.Delete(temp);
+        }
+
+        var old = cover;
+        cover = newImage;
+        old?.Dispose();
+
+        if (IsDisposed) return;
+        if (InvokeRequired) BeginInvoke(new Action(UpdateArtworkOnScreen));
+        else UpdateArtworkOnScreen();
     }
 
     private void LoadCachedCover()
