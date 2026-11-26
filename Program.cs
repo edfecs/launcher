@@ -1205,9 +1205,18 @@ internal sealed class MainForm : Form
         Image? previous = fadeFromIndex >= 0 && fadeFromIndex < banners.Count ? banners[fadeFromIndex] : null;
         if (current != null)
         {
-            if (previous != null && fadeProgress < 1f) float eased = 1f - (float)Math.Pow(1f - fadeProgress, 3);
-            if (previous != null && fadeProgress < 1f) DrawCoverImage(g, previous, bounds, 1f - eased);
-            DrawCoverImage(g, current, bounds, previous == null ? 1f : eased);
+            float eased = 1f - (float)Math.Pow(1f - fadeProgress, 3);
+            if (previous != null && fadeProgress < 1f)
+            {
+                // Cross-dissolve: outgoing artwork remains opaque while the incoming
+                // artwork fades over it. This avoids the dark flash between slides.
+                DrawCoverImage(g, previous, bounds, 1f);
+                DrawCoverImage(g, current, bounds, eased);
+            }
+            else
+            {
+                DrawCoverImage(g, current, bounds, 1f);
+            }
         }
         else
         {
