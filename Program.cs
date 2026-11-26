@@ -17,10 +17,19 @@ internal sealed class UserProfile
     public string PerformanceMode { get; set; } = "Сбалансированный";
 }
 
+internal sealed class GameEntry
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "Игра";
+    public string ExePath { get; set; } = "";
+    public string ArtworkPath { get; set; } = "";
+    public bool IsFortnite { get; set; }
+}
 internal sealed class AppData
 {
     public string ActiveProfileId { get; set; } = "";
     public List<UserProfile> Profiles { get; set; } = new();
+    public List<GameEntry> Games { get; set; } = new();
 }
 
 internal static class Program
@@ -58,7 +67,8 @@ internal sealed class MainForm : Form
     private Label bannerCounter = null!;
     private Panel content = null!;
     private Panel hero = null!;
-    private PictureBox gameTile = null!;
+    private Panel? gameHero;
+    private FlowLayoutPanel? gameGrid;
     private Label profileButton = null!;
     private Label coverStatus = null!;
     private System.Windows.Forms.Timer refreshTimer = null!;
@@ -118,6 +128,9 @@ internal sealed class MainForm : Form
         }
         if (!data.Profiles.Any(p => p.Id == data.ActiveProfileId))
             data.ActiveProfileId = data.Profiles[0].Id;
+        if (data.Games == null) data.Games = new List<GameEntry>();
+        if (!data.Games.Any(g => g.IsFortnite))
+            data.Games.Insert(0, new GameEntry { Name = "Fortnite", ExePath = Current.GamePath, ArtworkPath = CoverPath, IsFortnite = true });
     }
 
     private void SaveData() =>
@@ -171,7 +184,13 @@ internal sealed class MainForm : Form
                 bool show = string.IsNullOrWhiteSpace(search.Text) ||
                     "fortnite".Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase);
                 hero.Visible = show;
-                gameTile.Visible = show;
+                if (gameGrid != null)
+                    foreach (Control card in gameGrid.Controls)
+                    {
+                        string name = card.Tag as string ?? "";
+                        card.Visible = string.IsNullOrWhiteSpace(search.Text) ||
+                            name.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase);
+                    }
             }
         };
         top.Controls.Add(search);
@@ -383,56 +402,143 @@ internal sealed class MainForm : Form
 
         content.Controls.Add(new Label
         {
-            Text = "МОИ ИГРЫ",
-            Location = new Point(3, 475),
-            Size = new Size(300, 28),
-            ForeColor = text,
-            Font = new Font("Segoe UI", 16, FontStyle.Bold)
+            Text = "МОИ ИГРЫ", Location = new Point(3, 475), Size = new Size(300, 28),
+            ForeColor = text, Font = new Font("Segoe UI", 16, FontStyle.Bold)
         });
         content.Controls.Add(new Label
         {
-            Text = "1 ИГРА  •  ОБЛОЖКА ОБНОВЛЯЕТСЯ АВТОМАТИЧЕСКИ",
-            Location = new Point(4, 508),
-            Size = new Size(480, 18),
-            ForeColor = muted,
-            Font = new Font("Segoe UI", 8, FontStyle.Bold)
+            Text = $"{data.Games.Count} ИГРЫ  •  ОБЛОЖКИ ИЗ ИГР И НОВОСТЕЙ",
+            Location = new Point(4, 508), Size = new Size(480, 18),
+            ForeColor = muted, Font = new Font("Segoe UI", 8, FontStyle.Bold)
         });
-
-        gameTile = new PictureBox
+        var addGame = MakeButton("+  ДОБАВИТЬ ИГРУ", 0, 470, 180, 38, blue, Color.FromArgb(5, 20, 29));
+        addGame.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        addGame.Click += (_, _) => AddGame();
+        content.Controls.Add(addGame);
+        void PositionAddGame() => addGame.Location = new Point(Math.Max(350, content.ClientSize.Width - 220), 470);
+        content.Resize += (_, _) => PositionAddGame();
+        PositionAddGame();
+        gameGrid = new FlowLayoutPanel
         {
-            Location = new Point(0, 520),
-            Size = new Size(220, 255),
-            BackColor = panel,
-            SizeMode = PictureBoxSizeMode.Zoom,
-            Cursor = Cursors.Hand
+            Location = new Point(0, 535), Size = new Size(Math.Max(680, content.ClientSize.Width - 58), 290),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            AutoScroll = false, WrapContents = true, FlowDirection = FlowDirection.LeftToRight,
+            BackColor = Color.Transparent, Margin = Padding.Empty, Padding = Padding.Empty
         };
-        gameTile.Click += (_, _) => ShowGameDetails();
-        content.Controls.Add(gameTile);
-        if (cover != null) gameTile.Image = new Bitmap(cover);
-        var tileName = new Label
-        {
-            Text = "FORTNITE",
-            Location = new Point(12, 745),
-            Size = new Size(195, 23),
-            ForeColor = text,
-            BackColor = panel,
-            Font = new Font("Segoe UI", 10, FontStyle.Bold),
-            Cursor = Cursors.Hand
-        };
-        tileName.Click += (_, _) => ShowGameDetails();
-        content.Controls.Add(tileName);
-
-        coverStatus = new Label
-        {
-            Text = "АКТУАЛЬНАЯ ОБЛОЖКА",
-            Location = new Point(12, 769),
-            Size = new Size(200, 18),
-            ForeColor = muted,
-            BackColor = panel,
-            Font = new Font("Segoe UI", 7, FontStyle.Bold)
-        };
-        content.Controls.Add(coverStatus);
+        content.Controls.Add(gameGrid);
+        RenderGameCards();
         if (File.Exists(CoverPath) && cover == null) LoadCachedCover();
+    }
+
+    private void RenderGameCards()
+    {
+        if (gameGrid == null || gameGrid.IsDisposed) return;
+        gameGrid.SuspendLayout();
+        foreach (Control oldCard in gameGrid.Controls)
+            foreach (Control child in oldCard.Controls)
+                if (child is PictureBox pb) { var previous = pb.Image; pb.Image = null; previous?.Dispose(); }
+        gameGrid.Controls.Clear();
+        foreach (var game in data.Games)
+        {
+            var card = new Panel { Size = new Size(220, 220), BackColor = panel, Margin = new Padding(0, 0, 16, 16), Cursor = Cursors.Hand, Tag = game.Name };
+            var artwork = new PictureBox
+            {
+                Location = new Point(0, 0), Size = new Size(220, 142), BackColor = Color.FromArgb(29, 34, 44),
+                SizeMode = PictureBoxSizeMode.Zoom, Cursor = Cursors.Hand
+            };
+            Image? image = null;
+            if (game.IsFortnite)
+            {
+                if (cover == null && File.Exists(CoverPath)) LoadCachedCover();
+                if (cover != null) image = new Bitmap(cover);
+            }
+            else if (!string.IsNullOrWhiteSpace(game.ArtworkPath) && File.Exists(game.ArtworkPath))
+            {
+                try { using var fs = new FileStream(game.ArtworkPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); using var source = Image.FromStream(fs); image = new Bitmap(source); } catch { }
+            }
+            artwork.Image = image;
+            card.Controls.Add(artwork);
+            var gameName = new Label
+            {
+                Text = game.Name.ToUpperInvariant(), Location = new Point(12, 151), Size = new Size(196, 25),
+                ForeColor = text, BackColor = panel, Font = new Font("Segoe UI", 10, FontStyle.Bold), AutoEllipsis = true, Cursor = Cursors.Hand
+            };
+            card.Controls.Add(gameName);
+            var status = new Label
+            {
+                Text = game.IsFortnite ? (File.Exists(Current.GamePath) ? "ГОТОВА К ЗАПУСКУ" : "НАСТРОИТЬ РАСПОЛОЖЕНИЕ") :
+                    (File.Exists(game.ExePath) ? "ГОТОВА К ЗАПУСКУ" : "ПУТЬ НЕ НАЙДЕН"),
+                Location = new Point(12, 181), Size = new Size(196, 20), ForeColor = muted, BackColor = panel,
+                Font = new Font("Segoe UI", 7, FontStyle.Bold)
+            };
+            card.Controls.Add(status);
+            void OpenGame() { if (game.IsFortnite) ShowGameDetails(); else LaunchAddedGame(game); }
+            card.Click += (_, _) => OpenGame(); artwork.Click += (_, _) => OpenGame();
+            gameName.Click += (_, _) => OpenGame(); status.Click += (_, _) => OpenGame();
+            gameGrid.Controls.Add(card);
+        }
+        gameGrid.ResumeLayout();
+    }
+
+    private void AddGame()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = "Выбери EXE-файл игры — аватарка подтянется автоматически из иконки",
+            Filter = "Игры и приложения (*.exe)|*.exe", CheckFileExists = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        string exe = dialog.FileName;
+        if (data.Games.Any(g => string.Equals(g.ExePath, exe, StringComparison.OrdinalIgnoreCase)))
+        {
+            MessageBox.Show("Эта игра уже есть в библиотеке.", "Fortnite Booster PRO", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        string name = Path.GetFileNameWithoutExtension(exe);
+        try
+        {
+            var version = FileVersionInfo.GetVersionInfo(exe);
+            if (!string.IsNullOrWhiteSpace(version.ProductName)) name = version.ProductName.Trim();
+            else if (!string.IsNullOrWhiteSpace(version.FileDescription)) name = version.FileDescription.Trim();
+        }
+        catch { }
+        string artworkPath = Path.Combine(root, "game-" + Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            using var icon = Icon.ExtractAssociatedIcon(exe);
+            if (icon != null)
+            {
+                using var bitmap = icon.ToBitmap();
+                using var scaled = new Bitmap(256, 256);
+                using (var graphics = Graphics.FromImage(scaled))
+                {
+                    graphics.Clear(Color.Transparent);
+                    graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    float scale = Math.Min(220f / bitmap.Width, 220f / bitmap.Height);
+                    int w = Math.Max(1, (int)(bitmap.Width * scale)), h = Math.Max(1, (int)(bitmap.Height * scale));
+                    graphics.DrawImage(bitmap, new Rectangle((256 - w) / 2, (256 - h) / 2, w, h));
+                }
+                scaled.Save(artworkPath, System.Drawing.Imaging.ImageFormat.Png);
+            }
+        }
+        catch { artworkPath = ""; }
+        data.Games.Add(new GameEntry { Name = name, ExePath = exe, ArtworkPath = artworkPath });
+        SaveData();
+        ShowLibrary();
+    }
+
+    private void LaunchAddedGame(GameEntry game)
+    {
+        try
+        {
+            if (!File.Exists(game.ExePath))
+            {
+                MessageBox.Show("Файл игры не найден. Удали игру из библиотеки и добавь её заново.", game.Name, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            Process.Start(new ProcessStartInfo(game.ExePath) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(game.ExePath)! });
+        }
+        catch (Exception ex) { MessageBox.Show("Не удалось запустить " + game.Name + ": " + ex.Message); }
     }
 
     private void ShowGameDetails()
@@ -456,6 +562,7 @@ internal sealed class MainForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
         };
         art.Paint += PaintHero;
+        gameHero = art;
         content.Controls.Add(art);
         art.Controls.Add(new Label
         {
@@ -718,6 +825,7 @@ internal sealed class MainForm : Form
         if (bannerCounter != null && !bannerCounter.IsDisposed)
             bannerCounter.Text = $"{bannerIndex + 1:00} / {Math.Max(1, banners.Count):00}";
         if (hero != null && !hero.IsDisposed) hero.Invalidate();
+        if (gameHero != null && !gameHero.IsDisposed) gameHero.Invalidate();
     }
 
     private static bool IsHttpImageUrl(string? value) =>
@@ -803,13 +911,7 @@ internal sealed class MainForm : Form
     {
         if (IsDisposed) return;
         if (hero != null && !hero.IsDisposed) hero.Invalidate();
-        if (gameTile != null && !gameTile.IsDisposed)
-        {
-            var old = gameTile.Image;
-            gameTile.Image = cover == null ? null : new Bitmap(cover);
-            old?.Dispose();
-        }
-        if (coverStatus != null) coverStatus.Text = "ОБЛОЖКА ИЗ АКТУАЛЬНЫХ НОВОСТЕЙ";
+        if (gameGrid != null && !gameGrid.IsDisposed) RenderGameCards();
     }
 
     private void PaintHero(object? sender, PaintEventArgs e)
@@ -822,7 +924,10 @@ internal sealed class MainForm : Form
         {
             float scale = Math.Max((float)bounds.Width / activeBanner.Width, (float)bounds.Height / activeBanner.Height);
             int w = (int)(activeBanner.Width * scale), h = (int)(activeBanner.Height * scale);
+            var previousClip = g.Clip;
+            g.SetClip(bounds);
             g.DrawImage(activeBanner, new Rectangle((bounds.Width - w) / 2, (bounds.Height - h) / 2, w, h));
+            g.Clip = previousClip;
         }
         else
         {
