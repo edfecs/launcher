@@ -78,25 +78,14 @@ internal sealed class PremiumButton : Button
         e.Graphics.FillPath(brush, path);
         using var border = new Pen(hovered ? Color.FromArgb(105, 255, 255, 255) : Color.FromArgb(28, 255, 255, 255), 1);
         e.Graphics.DrawPath(border, path);
-        TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
+        TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine;
         if (TextAlign == ContentAlignment.MiddleLeft || TextAlign == ContentAlignment.TopLeft || TextAlign == ContentAlignment.BottomLeft)
             flags |= TextFormatFlags.Left;
         else if (TextAlign == ContentAlignment.MiddleRight || TextAlign == ContentAlignment.TopRight || TextAlign == ContentAlignment.BottomRight)
             flags |= TextFormatFlags.Right;
         else
             flags |= TextFormatFlags.HorizontalCenter;
-        if (TextAlign == ContentAlignment.TopLeft || TextAlign == ContentAlignment.TopCenter || TextAlign == ContentAlignment.TopRight)
-            flags |= TextFormatFlags.Top;
-        else if (TextAlign == ContentAlignment.BottomLeft || TextAlign == ContentAlignment.BottomCenter || TextAlign == ContentAlignment.BottomRight)
-            flags |= TextFormatFlags.Bottom;
-        e.Graphics.DrawString(Text, Font, new SolidBrush(ForeColor),
-            Rectangle.Inflate(rect, -8, -2), new StringFormat
-            {
-                Alignment = TextAlign == ContentAlignment.MiddleLeft ? StringAlignment.Near :
-                    TextAlign == ContentAlignment.MiddleRight ? StringAlignment.Far : StringAlignment.Center,
-                LineAlignment = StringAlignment.Center,
-                Trimming = StringTrimming.EllipsisCharacter
-            });
+        TextRenderer.DrawText(e.Graphics, Text, Font, Rectangle.Inflate(rect, -8, -2), ForeColor, flags);
     }
 }
 
