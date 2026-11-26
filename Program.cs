@@ -735,7 +735,7 @@ internal sealed class MainForm : Form
             response.EnsureSuccessStatusCode();
             string html = await response.Content.ReadAsStringAsync();
 
-            foreach (string marker in new[] { "property=\\"og:image\\"", "name=\\"twitter:image\\"" })
+            foreach (string marker in new[] { "property=" + '"' + "og:image" + '"', "name=" + '"' + "twitter:image" + '"' })
             {
                 int markerIndex = html.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
                 if (markerIndex < 0) continue;
@@ -743,7 +743,7 @@ internal sealed class MainForm : Form
                 int tagEnd = html.IndexOf('>', markerIndex);
                 if (tagStart < 0 || tagEnd < 0) continue;
                 string tag = html.Substring(tagStart, tagEnd - tagStart + 1);
-                int contentIndex = tag.IndexOf("content=\\"", StringComparison.OrdinalIgnoreCase);
+                int contentIndex = tag.IndexOf("content=" + '"', StringComparison.OrdinalIgnoreCase);
                 if (contentIndex < 0) continue;
                 contentIndex += 9;
                 int valueEnd = tag.IndexOf('"', contentIndex);
