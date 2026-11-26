@@ -425,7 +425,7 @@ internal sealed class MainForm : Form
         });
         content.Controls.Add(new Label
         {
-            Text = "Fortnite — бесплатная игра от Epic Games. Установка и обновления выполняются официальным Epic Games Launcher.\\nBooster хранит твой путь к игре и настройки отдельно для каждого профиля.",
+            Text = "Fortnite — бесплатная игра от Epic Games. Установка и обновления выполняются официальным Epic Games Launcher.\nBooster хранит твой путь к игре и настройки отдельно для каждого профиля.",
             Location = new Point(5, 546),
             Size = new Size(750, 58),
             ForeColor = muted,
@@ -859,7 +859,7 @@ internal sealed class MainForm : Form
                 return;
             }
             var choice = MessageBox.Show(
-                "Fortnite не найден в профиле.\\nДа — открыть страницу установки Epic Games.\\nНет — выбрать EXE установленной игры.",
+                "Fortnite не найден в профиле.\nДа — открыть страницу установки Epic Games.\nНет — выбрать EXE установленной игры.",
                 "Fortnite", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
             if (choice == DialogResult.Yes) OpenUrl(epicPage);
             else if (choice == DialogResult.No)
